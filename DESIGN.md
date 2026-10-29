@@ -16,7 +16,7 @@
 ## 核心机制
 
 - **前置审查**：`todo_write` 执行时，由独立无状态模型依据 DSH 当前生效的 `AGENTS.md` 指令审查待写入内容。审查完成后才继续本次写入，违规则返回明确提示。
-- **增量维护**：已完成任务只增不删，历史记录只读不可变；未开始或尚未完成的任务允许通过显式重排进行替换或作废。
+- **增量维护**：已完成任务只增不删，历史记录只读不可变。未开始或尚未完成的任务允许通过显式重排进行替换或作废。
 - **显式流转**：通过 `todo_start` / `todo_finish` 推进任务，不允许静默跳过任务。目标确实变化时，通过 `todo_write` 重排，而不是跳过原任务。
 - **执行上报**：执行具体动作的 step 同时调用 `todo_report`，声明当前目标、是否偏离及局部问题状态。
 - **两层任务结构**：任务树最大深度为 2，即“顶层任务 → 局部问题”。局部问题必须闭环后才能正常切回顶层任务；新的派生问题不得继续向下嵌套。
@@ -59,7 +59,7 @@
 
 传入起始序号时，从该序号开始重排：保留所有已完成节点，将该位置及之后尚未完成的节点显式作废，并替换为新的规划内容。
 
-重排不是静默跳过，而是对旧规划的显式替换；被替换节点及其作废历史仍需保留。目标变化、任务阻塞或出现必须优先处理的新问题时，都通过重排表达，不额外引入“跳过任务”的语义。
+重排是对旧规划的显式替换。被替换节点及其作废历史仍需保留。目标变化、任务阻塞或出现必须优先处理的新问题时，都通过重排表达，不额外引入“跳过任务”的语义。
 
 `todo_write` 触发前置审查。审查复用 DSH 已有的指令加载和生效机制，插件不自行遍历、收集或合并 `AGENTS.md` 文件。
 
@@ -77,7 +77,7 @@
 
 提供两种读取视图：
 
-- **默认模式**：从最后一条已完成的顶层任务开始，返回当前有效规划及当前局部问题，直到后续待办任务结束。更早的完成项和作废历史不进入默认视图，以控制上下文长度；尚无已完成任务时，从首项开始返回。
+- **默认模式**：从最后一条已完成的顶层任务开始，返回当前有效规划及当前局部问题，直到后续待办任务结束。默认视图不包含更早的完成项和作废历史，以控制上下文长度。尚无已完成任务时，从首项开始返回。
 - **全量模式**：返回完整历史，包括完成项、作废项、重排记录和局部问题记录，供阶段复盘或最终验收使用。
 
 这些历史与其他会话记录共同还原执行过程，todo 本身不承担复制所有工具结果的责任。
@@ -90,12 +90,12 @@
 
 - **当前目标的序号**：
   整数值，按当前规划解释，声明本 step 的动作所属顶层任务。
-  若与上一次汇报的序号不同，视为目标切换。前序任务必须最晚在下一 step 通过 `todo_finish` 标记完成，否则后续上报报错。局部问题尚未闭环时，不允许通过该字段切换到其他顶层目标。
+  若与上一次上报的序号不同，视为目标切换。前序任务必须最晚在下一 step 通过 `todo_finish` 标记完成，否则后续上报报错。局部问题尚未闭环时，不允许通过该字段切换到其他顶层目标。
 - **是否偏离目标**：
   bool 值，由模型根据自身元认知判断当前行为是否严重偏离目标，或采用的方法是否违反既定规范。
-  正常前置准备、轻微偏离且预期可快速闭环时输出 `false`；需要进入独立局部问题处理时输出 `true`。
+  正常前置准备、轻微偏离且预期可快速闭环时输出 `false`。需要进入独立局部问题处理时输出 `true`。
 
-  该参数同时是**局部问题状态机的控制输入**，不只是对当前行为的诊断标签。它与当前状态共同决定本次 report 触发哪种转换：
+  该参数是**局部问题状态机的控制输入**，与当前状态共同决定本次 report 触发哪种转换：
   - 当前没有局部问题时，`true` 开启局部问题，`false` 继续顶层任务；
   - 当前局部问题进行中时，`true` 表示继续处理该局部问题，`false` 则明确声明该局部问题已经完成并将其关闭。
 
@@ -106,7 +106,7 @@
 #### 选填参数
 
 - **偏离理由**：
-  字符串，只记录和说明局部问题的内容，不承担状态切换作用。开启局部问题时必须提供；继续处理同一局部问题时，可用于补充或更新说明，也可以省略。省略理由不表示局部问题已经完成，填写理由也不表示创建下一层局部问题。
+  字符串，只记录和说明局部问题的内容。开启局部问题时必须提供。继续处理同一局部问题时，可以补充或更新说明，也可以省略。状态切换只由 `deviated` 驱动。省略理由时，当前局部问题仍按本次 `deviated` 的取值继续处理或关闭。填写理由只是补充说明，任务层级保持不变。
 
 ## 局部问题状态机
 
@@ -115,7 +115,7 @@
 | 当前状态 | 上报或操作 | 状态变化 |
 | --- | --- | --- |
 | 无进行中局部问题 | `deviated=false` | 继续当前顶层任务 |
-| 无进行中局部问题 | `deviated=true` 并提供理由 | 开启一个局部问题，顶层目标序号保持不变 |
+| 无进行中局部问题 | `deviated=true` 并提供理由 | 开启一个局部问题，顶层任务序号保持不变 |
 | 局部问题进行中 | 再次 `deviated=true` | 表示继续处理当前局部问题，不创建下一层 |
 | 局部问题进行中 | `deviated=false` | 将当前局部问题标记为已完成，回到所属顶层任务 |
 | 局部问题进行中 | 完成或切换顶层任务 | 拒绝，必须先闭环局部问题 |
@@ -207,7 +207,9 @@ inject = ["tools", "sessionProjections", "llm"]
 5. 纯函数计算完整的 `nextDurableState`，其中追加一条规范化操作记录；
 6. 返回该状态和供 `render` 使用的简短结果，由 `output.presentationMeta()` 把状态放入工具结果元数据。
 
-工具体内不修改 projection，也不另写存储。DSH 完成输出校验和 render 后，由 agent loop 追加标准 `tool/call` / `tool/result`；`tool/result.meta` 就是该操作的逻辑提交点。若执行、审查、输出校验或调度失败，则只产生错误结果，ledger 不变。进程在结果提交前退出时，该操作同样不生效；恢复产生的 `TOOL_OUTCOME_UNKNOWN` 不得被当成成功操作自动重放。Session 持久化本身采用异步缓冲，因此这里的“提交”不等于独立 fsync 或跨崩溃 exactly-once 保证。
+工具体内不修改 projection，也不另写存储。DSH 完成输出校验和 render 后，由 agent loop 追加标准 `tool/call` / `tool/result`。`tool/result.meta` 就是该操作的逻辑提交点。
+
+若执行、审查、输出校验或调度失败，则只产生错误结果，ledger 不变。进程在结果提交前退出时，该操作同样不生效；恢复产生的 `TOOL_OUTCOME_UNKNOWN` 不得被当成成功操作自动重放。Session 持久化本身采用异步缓冲，因此这里的“提交”不等于独立 fsync 或跨崩溃 exactly-once 保证。
 
 持久 envelope 建议为：
 
@@ -232,9 +234,13 @@ interface TodoLedgerMeta {
 
 内部稳定 `taskId` 只用于拼接不可变历史，不改变模型可见的“序号只在当前规划内有效”约定。历史 report 始终保存当时的序号与内容快照，后续重排不重新绑定它。
 
-projection 只从 `message.isError !== true` 且 meta schema 匹配的原始 `tool/result` append 采用完整 durable state，同时保留由当前 step 事件单独折叠出的临时 guard 状态。`operationId` 使用原生 `callId`，`revision` 每次成功变更恰好加一：正常 append 必须满足 `revision === current.revision + 1`；同 ID、同 revision 且 payload 完全相同的重复记录才可幂等忽略，同 ID 不同 payload 或 revision 断裂都显式报错。
+projection 只从 `message.isError !== true` 且 meta schema 匹配的原始 `tool/result` append 中采用完整 durable state。由当前 step 事件单独折叠出的临时 guard 状态另行保留。
 
-必须特殊处理 compaction：`dsh-compaction-tool-result-pruner` 会把旧 `tool/result` 的完整 data（包括旧 meta）复制为更晚 seq 的 `surfaceOp.op === "replace"` 事件。此类 replacement 不得触发 ledger 状态采用或 record 追加，否则旧快照会回滚新状态；原始 append 仍保留在完整日志中。无关 durable 事件返回原 state 引用；无法识别的其他插件 meta 直接忽略；属于本插件但版本不支持、结构损坏或连续性校验失败的记录同样显式报错，不能静默跳过并产生看似正常、实际缺失的历史。
+`operationId` 使用原生 `callId`，`revision` 每次成功变更恰好加一。正常追加记录必须满足 `revision === current.revision + 1`。同 ID、同 revision 且 payload 完全相同的重复记录才可幂等忽略。同 ID 不同 payload 或 revision 断裂都显式报错。
+
+compaction 需要特殊处理。`dsh-compaction-tool-result-pruner` 会把旧 `tool/result` 的完整 data 连同旧 meta 一起复制为更晚 seq 的 `surfaceOp.op === "replace"` 事件。此类 replacement 不得触发 ledger 状态采用或 record 追加，否则旧快照会回滚新状态。原始 append 仍保留在完整日志中。
+
+无关的 durable 事件返回原 state 引用。无法识别的其他插件 meta 直接忽略。属于本插件但版本不支持、结构损坏或连续性校验失败的记录同样显式报错，不能静默跳过并产生看似正常、实际缺失的历史。
 
 #### Projection state
 
@@ -278,10 +284,10 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 
 具体校验规则：
 
-- 所有序号均为从 1 开始的整数，并在执行时按当前规划解析；内容先 `trim()`，空内容拒绝，当前规划内重复内容拒绝。
+- 所有序号均为从 1 开始的整数，并在执行时按当前规划解析。任务内容先 `trim()`，空内容拒绝，当前规划内重复内容拒绝。
 - 追加时 `todos` 不得为空；重排时允许为空，以显式作废旧后缀而不补入新任务。
 - 重排的 `start` 不得落在已完成前缀内。`start` 之前的节点保持原状态；从 `start` 开始的未完成节点全部记为 `cancelled`，新任务一律以 `pending` 插入。
-- 若重排作废当前活动任务，其未闭环局部问题一并记为 `cancelled`，不能伪装成已完成；若活动任务位于保留前缀，其局部问题继续保留。
+- 若重排作废当前活动任务，其未闭环局部问题一并记为 `cancelled`，不能伪装成已完成。若活动任务位于保留前缀，其局部问题继续保留。
 - `todo_start` 只能在没有活动任务时开始当前规划中的首个 `pending` 任务，且它之前的任务均已完成；重复开始、越过前序任务或同时保留多个 `in_progress` 都拒绝。
 - `todo_finish` 只能完成当前活动任务，且不存在属于它的未闭环局部问题。
 - `todo_report` 的目标必须是当前活动任务。目标切换的规范顺序是先 `todo_finish` 旧任务、再 `todo_start` 新任务、最后上报新序号；若同一 step 同时包含这些调用，也必须按此模型顺序排列。
@@ -300,12 +306,16 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 1. 调用 `agent.session.deriveMessages()`，按当前 visible surface 和已注册 message projection 取得主模型实际可见的消息序列；
 2. 只保留 `role === "user"`、`source.kind === "agent-instructions"` 且 `source.form === "instructions"` 的消息；
 3. 遇到新的 `source.baseline === true` 完整基线时，只淘汰更早的 baseline 消息；所有非 baseline 的新增、更新和移除消息都保留，包括位于最新 baseline 之前的独立 delta；
-4. 将保留消息按原 surface 顺序交给审查模型；审查 system prompt 明确说明新 baseline 只替代旧 baseline，不删除独立 delta，同路径后到的更新或移除覆盖先前内容；没有 baseline 时也原样保留现有 delta；
+4. 将保留消息按原 surface 顺序交给审查模型。审查 system prompt 明确说明新 baseline 只替代旧 baseline，不删除独立 delta，同路径后到的更新或移除覆盖先前内容。没有 baseline 时也原样保留现有 delta；
 5. 保存这些消息的 `message.id`，作为本次审查回执的一部分。
 
-这里读取的是当前请求的派生消息，而不是全量历史，因此 compaction 后仍跟随模型当前实际可见的消息。尚未进入该 surface 的 inbox 更新不属于本次已生效上下文。实现只依赖官方消息来源约定，不导入其内部文件发现函数，也不使用已 deprecated 的 `eventAt()` / `snapshotEvents()`；官方 auto-review 对后者的豁免不应复制到新插件。
+这里读取的是当前请求的派生消息，来源限于模型当前可见的 surface，因此 compaction 后仍跟随模型当前实际可见的消息。尚未进入该 surface 的 inbox 更新不属于本次已生效上下文。
 
-这里的“当前生效”特指 **committed visible instruction chain**，不等于磁盘最新完整 AGENTS：官方预算本来就可能省略或截断内容，compaction 也可能用 checkpoint 替换指令节点。空链只表示本次没有可见指令输入，不证明磁盘没有文件；审查回执必须如实记录该输入，而不能沿用旧指令或伪造完整链。若未来要求“磁盘完整指令必须全部审查”，需要独立的 instruction surface projection 和新的完整性语义，不能声称当前方案已经提供该保证。
+实现只依赖官方消息来源约定，通过 `agent-instructions` 来源的消息读取指令，不导入官方内部的文件发现函数。审查所用的指令只取自当前可见的指令消息。
+
+这里的“当前生效”特指 **committed visible instruction chain**，不等于磁盘最新完整 AGENTS：官方预算本来就可能省略或截断内容，compaction 也可能用 checkpoint 替换指令节点。空链只说明本次可见指令输入为空，磁盘上仍可能有文件。
+
+审查回执必须如实记录该输入，不能沿用旧指令或伪造完整链。若未来要求“磁盘完整指令必须全部审查”，需要独立的 instruction surface projection 和新的完整性语义，不能声称当前方案已经提供该保证。
 
 #### 独立无状态调用
 
@@ -347,13 +357,19 @@ projection 从现有事件派生 `activeStep`：
 - 成功的 ledger report 结果：记录该 step 已完成的上报；
 - `step/end`：清理临时观察状态。
 
-当 step 开始时已有未完成任务，或该 step 包含可能创建任务的 `todo_write` 时，非 todo 工具必须满足：其所属 assistant message 中恰好计划调用一次 `todo_report`。缺失或重复时，guard 在执行具体动作前拒绝。`todo_write` / `todo_start` / `todo_finish` / `todo_read` 豁免此结构检查，避免形成规划与闭环的死锁；`todo_report` 自身不豁免唯一性检查，计划数量大于一时每个重复 report 都在执行前被拒绝。只包含 todo 工具且满足 report 唯一性的 step 合法，纯文本和最终回复天然不经过 guard。step 开始时没有未完成任务、也不创建新任务时不强制上报，使简单任务和规划前准备不受干扰。上报要求由 step 开始时的状态和该 assistant message 的完整调用计划共同确定，并在整个 step 内保持不变，不能通过先调用 `todo_finish` 再执行未上报动作来绕过。
+当 step 开始时已有未完成任务，或该 step 包含可能创建任务的 `todo_write` 时，非 todo 工具必须满足：其所属 assistant message 中恰好计划调用一次 `todo_report`。缺失或重复时，guard 在执行具体动作前拒绝。`todo_write` / `todo_start` / `todo_finish` / `todo_read` 豁免此结构检查，避免形成规划与闭环的死锁。`todo_report` 自身不豁免唯一性检查，计划数量大于一时每个重复 report 都在执行前被拒绝。
 
-此检查保证的是“assistant 计划中恰好一次”，不保证该 report 最终成功，也不会回滚已经执行的其他工具。如果模型把无效 report 排在其他动作之后，前面的动作可能已经执行；因此工具描述应建议将 report 放在同批调用前面以尽早暴露错误，guard 和 report 状态机仍负责拒绝违规流转。不能用事后 reminder 冒充严格前置约束。
+只包含 todo 工具且满足 report 唯一性的 step 合法，纯文本和最终回复不在 guard 的检查范围内。step 开始时没有未完成任务、也不创建新任务时不强制上报，使简单任务和规划前准备不受干扰。
 
-首版明确只支持 DSH 原生 Function Calling，组合不应在 PTC scope 中挂载本插件。PTC 的 `run_code` 子调用不具备同样的 assistant tool-call 结构，不能靠扫描代码文本推断未来是否会 report，直接 Node side effect 也会绕过工具 guard。更重要的是，PTC 内层结果写入 `tool/ptc-dispatch.meta` 且异步追加，下一内层调用可能读不到前一结果，因此不能只把 guard 标记为“不支持”后仍允许 ledger 工具执行。作为防御，任何带 `exec.parent` 的 ledger 子调用都应直接拒绝；在完整支持 PTC 前，不宣称其状态持久化或上报约束可靠。
+上报要求由 step 开始时的状态和该 assistant message 的完整调用计划共同确定，并在整个 step 内保持不变，不能通过先调用 `todo_finish` 再执行未上报动作来绕过。
 
-局部问题闭环还有一条时序约束：模型在同一批工具调用发出时尚未看到本批结果，不能根据尚未执行的修复动作声明问题已经闭环。尝试修复的 step 应继续 `deviated=true`；后续 step 观察到结果并确认闭环后，再发起 `deviated=false` 的 report。该 report 可以单独成 step，也可以与已经基于既有事实决定的后续合法调用同 step。
+此检查保证的是“assistant 计划中恰好一次”，范围限于计划层面。report 最终执行失败时，已经执行的其他工具仍保持已执行状态。如果模型把无效 report 排在其他动作之后，前面的动作可能已经执行。因此，工具描述应建议将 report 放在同批调用前面，以尽早暴露错误。guard 和 report 状态机仍负责拒绝违规流转。不能用事后提醒冒充严格前置约束。
+
+首版明确只支持 DSH 原生 Function Calling，组合应当只在非 PTC 场景中挂载本插件。PTC 的 `run_code` 子调用与 assistant tool-call 的结构不同，因此靠扫描代码文本推断不出未来是否会 report。直接 Node side effect 也会绕过工具 guard。更重要的是，PTC 内层结果写入 `tool/ptc-dispatch.meta` 且异步追加，下一内层调用可能读不到前一结果。
+
+因此在 PTC 场景下，guard 必须直接拒绝 ledger 工具执行。具体做法是，任何带 `exec.parent` 的 ledger 子调用都直接拒绝。在完整支持 PTC 前，上述状态持久化和上报约束只在 Function Calling 场景下成立。
+
+局部问题闭环还有一条时序约束。模型发出同一批工具调用时，还没有看到本批结果。因此声明问题已经闭环的依据，只能是已经执行并观察到结果的修复动作。尝试修复的 step 应继续 `deviated=true`。后续 step 观察到结果并确认闭环后，再发起 `deviated=false` 的 report。该 report 可以单独成为一个 step。后续合法调用若已经基于既有事实决定，也可以和该 report 放在同一个 step。
 
 ### 读取视图与上下文预算
 
