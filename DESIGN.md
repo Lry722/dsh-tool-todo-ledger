@@ -89,14 +89,12 @@
 
 - **当前目标的序号**：
   整数值，按当前规划解释，声明本 step 的动作所属顶层任务。
-  若与上一次上报的序号不同，视为目标切换。前序任务必须最晚在下一 step 通过 `todo_finish` 标记完成，否则后续上报报错。局部问题尚未闭环时，不允许通过该字段切换到其他顶层目标。
+  若与上一次上报的序号不同，视为目标切换。前序任务必须最晚在下一 step 通过 `todo_finish` 标记完成，否则后续上报报错。局部问题尚未闭环时，不允许通过该字段切换到其他顶层任务。
 - **是否偏离目标**：
   bool 值，由模型根据自身元认知判断当前行为是否严重偏离目标，或采用的方法是否违反既定规范。
   正常前置准备、轻微偏离且预期可快速闭环时输出 `false`。需要进入独立局部问题处理时输出 `true`。
 
-  该参数是**局部问题状态机的控制输入**，与当前状态共同决定本次 report 触发哪种转换：
-  - 当前没有局部问题时，`true` 开启局部问题，`false` 继续顶层任务；
-  - 当前局部问题进行中时，`true` 表示继续处理该局部问题，`false` 则明确声明该局部问题已经完成并将其关闭。
+  该参数是**局部问题状态机的控制输入**，与当前状态共同决定本次 report 触发哪种转换，具体转换规则见“局部问题状态机”一节。
 
   因此，在局部问题进行中，`false` 的核心含义是“局部问题已完成、可以回到顶层任务”，而不只是“当前动作看起来没有偏离”。模型必须在局部问题实际闭环后才能输出 `false`。
 
@@ -139,7 +137,7 @@
 4. 未开始：补充测试
 5. 未开始：更新文档
 
-旧的第 2～4 项保留为已作废历史，新规划返回新的序号对应关系。之后的 `todo_start`、`todo_finish` 和 `todo_report` 均按新规划解释序号；旧 report 不需要跟随重排重新绑定序号。
+旧的第 2～4 项保留为已作废历史，新规划返回新的序号对应关系。之后的 `todo_start`、`todo_finish` 和 `todo_report` 均按新规划解释序号。旧 report 不需要跟随重排重新绑定序号。
 
 ## 实现边界
 
@@ -153,7 +151,7 @@
 
 ## 技术实现方案
 
-以下方案基于当前安装的 DSH `0.2.1-rc.2` API 和官方插件实现。它是对上述语义的一套具体落地选择；后续升级 DSH 时，应先用 Inspect 重新核对 Service、Event 和会话格式，再调整实现。
+以下方案基于当前安装的 DSH `0.2.1-rc.2` API 和官方插件实现。它是对上述语义的一套具体落地选择。后续升级 DSH 时，应先用 Inspect 重新核对 Service、Event 和会话格式，再调整实现。
 
 ### 官方实现调研结论
 
@@ -166,7 +164,7 @@
 | `@deepseek-ai/dsh-tools` 与 `dsh-agent-loop` | 默认 exclusive 工具形成调度屏障；工具结果按模型调用顺序提交；`output.presentationMeta` 进入持久 `tool/result.meta`；`tools.guard()` 提供同步、单调拒绝 | 以标准工具事件承载 ledger，以 guard 执行同 step 上报约束 |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | 工具管线观察与下一 step 上下文注入方式 | 本项目需要阻止违规动作而非事后提醒，因此不用 post-execute 提醒代替 guard |
 
-关键差异是：官方 todo 能通过声明合并新增 `todo/write` 事件类型，第三方持久插件不应照搬。普通插件新增不可忽略 session event 类型会破坏旧 reader 和会话恢复；`appendPluginRecord()` 又是实验能力。因此本方案不新增事件类型，也不引入第二份外部状态库。
+关键差异是：官方 todo 能通过声明合并新增 `todo/write` 事件类型，第三方持久插件不应照搬。普通插件新增不可忽略 session event 类型会破坏旧 reader 和会话恢复。`appendPluginRecord()` 又是实验能力。因此本方案不新增事件类型，也不引入第二份外部状态库。
 
 ### 总体结构
 
@@ -263,11 +261,11 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 }
 ```
 
-- `TaskNode.status`：`pending | in_progress | completed | cancelled`；当前规划只引用前三者，作废状态留在历史节点中。
-- `LocalIssue.status`：`open | closed | cancelled`；`openIssue` 只指向当前唯一未闭环问题。
-- `records` 是只追加的不可变操作记录；节点当前状态与记录一起保存在完整快照中，后续重排不改写旧记录。
+- `TaskNode.status`：`pending | in_progress | completed | cancelled`。当前规划只引用前三者，作废状态留在历史节点中。
+- `LocalIssue.status`：`open | closed | cancelled`。`openIssue` 只指向当前唯一未闭环问题。
+- `records` 是只追加的不可变操作记录。节点当前状态与记录一起保存在完整快照中，后续重排不改写旧记录。
 - `activeStep` 只服务 report guard，在 `step/end` 清理，不进入 `todo_read` 历史视图。
-- 不响应 `turn/start` 清空任务；跨 turn、恢复和 fork 都以同一日志前缀折叠。
+- 跨 turn、恢复和 fork 都以同一日志前缀折叠。
 
 ### 工具契约与顺序约束
 
@@ -284,13 +282,13 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 具体校验规则：
 
 - 所有序号均为从 1 开始的整数，并在执行时按当前规划解析。任务内容先 `trim()`，空内容拒绝，当前规划内重复内容拒绝。
-- 追加时 `todos` 不得为空；重排时允许为空，以显式作废旧后缀而不补入新任务。
-- 重排的 `start` 不得落在已完成前缀内。`start` 之前的节点保持原状态；从 `start` 开始的未完成节点全部记为 `cancelled`，新任务一律以 `pending` 插入。
+- 追加时 `todos` 不得为空。重排时允许为空，以显式作废旧后缀而不补入新任务。
+- 重排的 `start` 不得落在已完成前缀内。`start` 之前的节点保持原状态。从 `start` 开始的未完成节点全部记为 `cancelled`，新任务一律以 `pending` 插入。
 - 若重排作废当前活动任务，其未闭环局部问题一并记为 `cancelled`，不能伪装成已完成。若活动任务位于保留前缀，其局部问题继续保留。
-- `todo_start` 只能在没有活动任务时开始当前规划中的首个 `pending` 任务，且它之前的任务均已完成；重复开始、越过前序任务或同时保留多个 `in_progress` 都拒绝。
+- `todo_start` 只能在没有活动任务时开始当前规划中的首个 `pending` 任务，且它之前的任务均已完成。重复开始、越过前序任务或同时保留多个 `in_progress` 都拒绝。
 - `todo_finish` 只能完成当前活动任务，且不存在属于它的未闭环局部问题。
-- `todo_report` 的目标必须是当前活动任务。目标切换的规范顺序是先 `todo_finish` 旧任务、再 `todo_start` 新任务、最后上报新序号；若同一 step 同时包含这些调用，也必须按此模型顺序排列。
-- 开启局部问题时 `reason` 必填且非空；继续同一问题时不得创建子问题；`deviated=false` 关闭当前问题后，`reason` 只能作为本次闭环说明，不得再开启下一层。
+- `todo_report` 的目标必须是当前活动任务。目标切换的规范顺序是先 `todo_finish` 旧任务、再 `todo_start` 新任务、最后上报新序号。若同一 step 同时包含这些调用，也必须按此模型顺序排列。
+- 开启局部问题时 `reason` 必填且非空。继续同一问题时不得创建新的派生问题。`deviated=false` 关闭当前问题后，`reason` 只能作为本次闭环说明，不得再开启下一层。
 
 五个工具都不声明 `isConcurrencySafe`，即使用官方 `defineTool` 的默认 exclusive 调度。这样一个 ledger 调用的 `tool/result` 会在下一个调用开始前提交，避免两个执行体同时基于旧 state 生成 next state，也避免另写易出错的内存锁或乐观覆盖层。模型仍可在同一 assistant step 组织多个调用，是否并发由 DSH 调度决定。
 
@@ -310,7 +308,7 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 
 这里读取的是当前请求的派生消息，来源限于模型当前可见的 surface，因此 compaction 后仍跟随模型当前实际可见的消息。尚未进入该 surface 的 inbox 更新不属于本次已生效上下文。
 
-实现只依赖官方消息来源约定，通过 `agent-instructions` 来源的消息读取指令，不导入官方内部的文件发现函数。审查所用的指令只取自当前可见的指令消息。
+实现只依赖官方消息来源约定，通过 `agent-instructions` 来源的消息读取指令，不导入官方内部的文件发现函数。
 
 这里的“当前生效”特指 **committed visible instruction chain**，不等于磁盘最新完整 AGENTS：官方预算本来就可能省略或截断内容，compaction 也可能用 checkpoint 替换指令节点。空链只说明本次可见指令输入为空，磁盘上仍可能有文件。
 
@@ -340,7 +338,7 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 }
 ```
 
-只接受 `finish.kind === "stop"`，拒绝 tool-calls、max-tokens、空文本、Markdown 围栏、未知字段和不符合约束的 JSON。`allow=true` 时 `violations` 必须为空；`allow=false` 时至少要有一条可操作的违规说明。
+只接受 `finish.kind === "stop"`，拒绝 tool-calls、max-tokens、空文本、Markdown 围栏、未知字段和不符合约束的 JSON。`allow=true` 时 `violations` 必须为空。`allow=false` 时至少要有一条可操作的违规说明。
 
 审查拒绝、超时、路由失败、调用失败、输出非法或输入超限都使本次 `todo_write` 失败，且不提交新状态。即“审查不可用则关闭写入”，不能降级为跳过审查。错误结果区分“审查拒绝”和“审查不可用”，前者返回有界违规列表，后者返回可操作诊断。
 
@@ -373,18 +371,28 @@ projection 从现有事件派生 `activeStep`：
 ### 读取视图与上下文预算
 
 - 默认 `mode="current"` 只返回最后一条已完成顶层任务起的当前有效规划、当前活动任务、未闭环局部问题及必要的最近 report 摘要，不返回作废记录。
-- `mode="history"` 返回完整历史的分页视图。`offset` 从 0 开始，`limit` 使用 `historyDefaultLimit` 并设置硬上限；结果包含 `total` 和可选 `nextOffset`。因此“全量”指可逐页读取全部记录，不要求一次性把无界历史塞入上下文。
-- 工具 `render` 输出简洁文本或紧凑 JSON；完整 durable state 只进入 meta，不复制到模型可见 content。`todo_read` 是唯一主动读取大段 ledger 历史的入口。
-- 工具描述只说明各自行为和参数约束；同 step 上报规则集中放在 `todo_report` 描述中，不在其他四个工具和 system prompt 重复多份。
+- `mode="history"` 返回完整历史的分页视图。`offset` 从 0 开始，`limit` 使用 `historyDefaultLimit` 并设置硬上限。结果包含 `total` 和可选 `nextOffset`。因此“全量”指可逐页读取全部记录，不要求一次性把无界历史塞入上下文。
+- 工具 `render` 输出简洁文本或紧凑 JSON。完整 durable state 只进入 meta，不复制到模型可见 content。`todo_read` 是唯一主动读取大段 ledger 历史的入口。
+- 工具描述只说明各自行为和参数约束。同 step 上报规则集中放在 `todo_report` 描述中，不在其他四个工具和 system prompt 重复多份。
 
 ### 恢复、兼容与验证重点
 
+#### 状态与回放测试
+
 1. **reducer 测试**：追加、纯追加空数组、尾部重排、活动任务重排、局部问题作废、顺序 start/finish、目标切换和非法跳转。
-2. **事件回放测试**：实时执行后的 state 与从 `tool/call` / `tool/result` 全量回放一致；失败结果、无关 meta 和 `turn/start` 不改变 ledger；重复 operationId 的冲突和 revision 断裂会显式失败。
-3. **生命周期测试**：resume、fork（分别位于 call 和 result 前后）、compaction 后当前规划和完整历史一致；旧结果在新操作之后被 prune 时不会回滚或重复；恢复 unknown 不推进 ledger；projection checkpoint 的 `stateVersion` 升级能触发重放。
-4. **调度测试**：多个同 step 调用按模型顺序提交；延迟或失败的前序调用不会留下半次状态更新；默认 exclusive 下不会读取到上一个调用的未提交状态。
-5. **guard 测试**：无 report、重复 report（包括排在普通动作之前）、report-only、最终无工具回复、无活动规划、先 finish 后动作的绕过尝试、planned report 失败但动作已执行的审计边界，以及 PTC 子调用被明确拒绝。
-6. **审查测试**：只注入当前可见指令链；新基线只替换旧基线并保留其前后独立 delta；baseline 被 compaction 替换后使用新的可见链；pending inbox 不提前纳入；更新/移除顺序正确；拒绝、超时、非法 JSON、超预算均无写入；覆盖路由和当前路由回退。
-7. **模型体验与容量测试**：比较多步任务下新旧调用的累计输入 token，确认 meta 不进入 model-facing content，检查历史页不会无界增长，并测量完整状态快照带来的日志体积放大。
+2. **事件回放测试**：实时执行后的 state 与从 `tool/call` / `tool/result` 全量回放一致。失败结果、无关 meta 和 `turn/start` 不改变 ledger。重复 operationId 的冲突和 revision 断裂会显式失败。
+3. **生命周期测试**：resume、fork（分别位于 call 和 result 前后）、compaction 后当前规划和完整历史一致。旧结果在新操作之后被 prune 时不会回滚或重复。恢复得到 unknown 结果时不推进 ledger。projection checkpoint 的 `stateVersion` 升级能触发回放。
+
+#### 调度与 guard 测试
+
+4. **调度测试**：多个同 step 调用按模型顺序提交。延迟或失败的前序调用要么完整提交，要么整体放弃。默认 exclusive 下读到的是上一个调用已提交的状态。
+5. **guard 测试**：上报结构覆盖无 report、重复 report（包括排在普通动作之前）和 report-only。绕过尝试覆盖最终无工具回复、无活动规划，以及先 finish 后动作。审计边界覆盖 planned report 失败但动作已执行。
+6. **PTC 测试**：确认带 `exec.parent` 的 ledger 子调用被直接拒绝。
+
+#### 审查与容量测试
+
+7. **审查测试**：只注入当前可见指令链。新 baseline 只替换旧 baseline，其前后的独立 delta 仍然保留。baseline 被 compaction 替换后，改用新的可见指令链。审查还要确认 pending inbox 不提前纳入，更新与移除的顺序正确。
+8. **审查失败与路由测试**：拒绝、超时、非法 JSON 或超预算时均无写入。路由方面分别覆盖显式配置路由和回退到当前路由两种情况。
+9. **模型体验与容量测试**：比较多步任务下新旧调用的累计输入 token。确认 meta 只写入模型不可见的 `tool/result.meta`，历史页的输出大小有明确上限。最后测量完整状态快照带来的日志体积放大。
 
 推荐实现顺序是：先完成纯 reducer 与 meta 回放，再接入五个 exclusive 工具，然后增加 report guard，最后接入独立审查。这样每一步都能用确定性的会话日志测试验证，避免把状态机、模型审查和调度问题混在一起排查。
