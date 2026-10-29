@@ -11,15 +11,15 @@
 - 通过清晰规划和状态约束减少偏航、重复探索与无效返工；
 - 通过局部问题的显式闭环，避免在处理任务时不断嵌套新问题、持续钻牛角尖。
 
-上下文收益不只来自少传任务列表，也来自减少偏航和返工。todo 是对会话历史的结构化补充，不替代其他工具的调用记录、执行结果或验证信息。
+上下文收益不只来自减少任务列表的传输量，也来自减少偏航和返工。todo 是对会话历史的结构化补充，其他工具的调用记录、执行结果和验证信息仍由会话日志保存。
 
 ## 核心机制
 
 - **前置审查**：`todo_write` 执行时，由独立无状态模型依据 DSH 当前生效的 `AGENTS.md` 指令审查待写入内容。审查完成后才继续本次写入，违规则返回明确提示。
 - **增量维护**：已完成任务只增不删，历史记录只读不可变。未开始或尚未完成的任务允许通过显式重排进行替换或作废。
-- **显式流转**：通过 `todo_start` / `todo_finish` 推进任务，不允许静默跳过任务。目标确实变化时，通过 `todo_write` 重排，而不是跳过原任务。
+- **显式流转**：通过 `todo_start` / `todo_finish` 推进任务，不允许静默跳过任务。目标确实变化时，通过 `todo_write` 重排当前规划。
 - **执行上报**：执行具体动作的 step 同时调用 `todo_report`，声明当前目标、是否偏离及局部问题状态。
-- **两层任务结构**：任务树最大深度为 2，即“顶层任务 → 局部问题”。局部问题必须闭环后才能正常切回顶层任务；新的派生问题不得继续向下嵌套。
+- **两层任务结构**：任务树最大深度为 2，即“顶层任务 → 局部问题”。局部问题必须闭环后才能正常切回顶层任务，新的派生问题不得继续向下嵌套。
 
 ## 基本概念
 
@@ -27,21 +27,20 @@
 
 **当前规划**是最新一次 `todo_write` 后生效的任务顺序，用于解释后续的 `todo_start`、`todo_finish` 和 `todo_report`。
 
-**历史记录**保存历次追加、完成、重排、作废和上报形成的过程信息。历史记录不会因为重排当前规划而被改写。
+**历史记录**保存历次追加、完成、重排、作废和上报形成的过程信息。重排当前规划时，历史记录保持不变。
 
 ### 序号的有效范围
 
 `todo_write` 返回的序号只在**当前规划内**保证唯一，用于后续状态流转和上报。重排未完成任务后，后续节点的序号可以变化，调用结果必须返回新的序号与任务内容对应关系。
 
-序号不是跨全部历史永久不变的标识。历史 report 只记录当时的上报内容，不需要在后续重排后重新按序号解析其任务归属，因此不要求序号永久稳定。
+历史 report 记录当时的上报内容，后续重排仍按当时的内容解释任务归属，因此序号只在当前规划内有效，会随重排变化。
 
 ### step 与“并行调用”
 
 本文中的 **step** 指一次 assistant step。
 
-“并行调用 `todo_report`”是指：模型在同一个 assistant step 中，除了其他动作外，一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，**不要求工具在运行时真正并发执行**。
+“并行调用 `todo_report`”指模型在同一个 assistant step 中，在发起其他动作的同时一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，工具在实际运行时可以串行执行。
 
-其他动作不需要等待 `todo_report` 完成后再执行；具体工具是否串行或并发，仍由 DSH 原有调度机制决定。
 
 最终回复不需要调用 `todo_report`。
 
@@ -192,9 +191,9 @@ inject = ["tools", "sessionProjections", "llm"]
 
 #### 模型侧增量，日志侧完整状态
 
-`dsh-session-projection` 有一条负载性约定：状态事件必须携带完整 post-change state，不能只是裸 delta。因此本项目只在**模型调用参数**上使用增量；每次成功操作写入日志的，是包含全部当前规划和历史的完整持久状态。projection 可以直接采用该状态，回放不依赖重新执行审查、序号解析或 ID 分配。
+`dsh-session-projection` 有一条负载性约定：状态事件必须携带完整 post-change state，不能只是裸 delta。因此本项目只在**模型调用参数**上使用增量。每次成功操作写入日志的，是包含全部当前规划和历史的完整持久状态。projection 可以直接采用该状态，回放不依赖重新执行审查、序号解析或 ID 分配。
 
-完整状态只位于模型不可见的 `tool/result.meta`，不会抵消减少上下文的收益。代价是历史增长会带来日志存储放大；首版应测量该成本，不能在违反 whole-value rule 的前提下用裸增量“优化”。后续若 DSH 提供稳定的插件日志能力，再单独设计存储格式迁移。
+完整状态只位于模型不可见的 `tool/result.meta`，不会抵消减少上下文的收益。代价是历史增长会带来日志存储放大。首版应测量该成本，不能在违反 whole-value rule 的前提下用裸增量“优化”。后续若 DSH 提供稳定的插件日志能力，再单独设计存储格式迁移。
 
 #### 不在工具体内直接改状态
 
@@ -207,9 +206,9 @@ inject = ["tools", "sessionProjections", "llm"]
 5. 纯函数计算完整的 `nextDurableState`，其中追加一条规范化操作记录；
 6. 返回该状态和供 `render` 使用的简短结果，由 `output.presentationMeta()` 把状态放入工具结果元数据。
 
-工具体内不修改 projection，也不另写存储。DSH 完成输出校验和 render 后，由 agent loop 追加标准 `tool/call` / `tool/result`。`tool/result.meta` 就是该操作的逻辑提交点。
+工具体内只做校验和计算，状态的采用和写入交给 projection 和 agent loop。DSH 完成输出校验和 render 后，由 agent loop 追加标准 `tool/call` / `tool/result`。`tool/result.meta` 就是该操作的逻辑提交点。
 
-若执行、审查、输出校验或调度失败，则只产生错误结果，ledger 不变。进程在结果提交前退出时，该操作同样不生效；恢复产生的 `TOOL_OUTCOME_UNKNOWN` 不得被当成成功操作自动重放。Session 持久化本身采用异步缓冲，因此这里的“提交”不等于独立 fsync 或跨崩溃 exactly-once 保证。
+若执行、审查、输出校验或调度失败，则只产生错误结果，ledger 不变。进程在结果提交前退出时，该操作同样不生效。恢复产生的 `TOOL_OUTCOME_UNKNOWN` 不得被当成成功操作自动重放。Session 持久化本身采用异步缓冲，因此这里的“提交”不等于独立 fsync 或跨崩溃 exactly-once 保证。
 
 持久 envelope 建议为：
 
@@ -319,11 +318,11 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 
 #### 独立无状态调用
 
-审查是一次新的辅助 LLM 请求，不是主 agent 的 continuation，也不启动 subagent：
+审查是一次新的辅助 LLM 请求，独立于主 agent 的 continuation，也不启动 subagent：
 
-- `system` 只包含审查职责、输出协议，以及 baseline 替换和独立 delta 的顺序/优先级说明；AGENTS 是待评估依据，不得改写固定审查职责和 JSON 输出协议，`source.kind` 只作上下文归因，不当作安全 provenance；
-- `messages` 仅包含上述 AGENTS 消息，以及最后一条新的 user 消息；后者用 JSON 封装待追加/重排内容、`start` 和必要的当前规划摘要，避免任务文本破坏结构边界；
-- 不传主会话对话、assistant 思考、工具结果或工具声明；不传 `purpose: "session-title"`；
+- `system` 只包含审查职责、输出协议，以及 baseline 替换和独立 delta 的顺序和优先级说明。AGENTS 是待评估依据，不得改写固定的审查职责和 JSON 输出协议。`source.kind` 只作上下文归因，不当作安全 provenance；
+- `messages` 仅包含上述 AGENTS 消息，以及最后一条新的 user 消息。该条 user 消息用 JSON 封装待追加/重排内容、`start` 和必要的当前规划摘要，避免任务文本破坏结构边界；
+- 审查调用不传入主会话对话、assistant 思考、工具结果、工具声明和 `purpose: "session-title"`；
 - 路由优先使用成对配置的 `reviewProvider` / `reviewModel`，否则读取 `agent.session.requestContext()` 的当前精确路由；缺少路由时失败；
 - 通过 `llm.prepareCall()` 解析模型能力和默认值，可参照官方标题调用选择最低可用 reasoning effort；
 - 用与 `exec.signal` 联动的 deadline 限制总时长，用 `BlockAssembler` 收集响应。
@@ -347,7 +346,7 @@ interface TodoLedgerState extends DurableTodoLedgerState {
 
 ### 同 step 上报的执行约束
 
-仅靠 `todo_report` 描述无法保证模型遵守，因此增加同步 `ctx.tools.guard()`。guard 不改变其他插件的 waterfall 决策，只在条件不满足时返回拒绝理由。它只对能通过当前原生 `tool/call` 映射到 assistant step 的模型调用套用此策略；没有该映射的程序化插件调用不误判为模型违规，写工具自身的 direct dispatch 拒绝规则则单独生效。
+仅靠 `todo_report` 描述无法保证模型遵守，因此增加同步 `ctx.tools.guard()`。guard 不改变其他插件的 waterfall 决策，只在条件不满足时返回拒绝理由。它只对能通过当前原生 `tool/call` 映射到 assistant step 的模型调用套用此策略。没有该映射的程序化插件调用不误判为模型违规。写工具自身的 direct dispatch 拒绝规则单独生效。
 
 projection 从现有事件派生 `activeStep`：
 
