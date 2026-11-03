@@ -16,6 +16,14 @@ function clone(value) {
   return structuredClone(value);
 }
 
+// Old reports used localTask; normalize them when replaying existing sessions.
+function normalizeReport(report) {
+  const inIssue = report?.inIssue ?? report?.inLocalTask;
+  const rawIssue = report?.issue ?? report?.localTask;
+  const issue = typeof rawIssue === 'string' && rawIssue.trim().length > 0 ? rawIssue.trim() : undefined;
+  return { index: report?.index, inIssue: inIssue === true, ...(issue === undefined ? {} : { issue }) };
+}
+
 function contentOf(value) {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error('todo_write: every task must be a non-empty string');
@@ -58,7 +66,7 @@ export function dockTodos(state) {
     }
     if (task.status === 'in_progress' && state.lastReportTaskId === id) {
       const latest = task.reports.at(-1);
-      if (latest?.inLocalTask && latest.localTask) result.localTask = latest.localTask;
+      if (latest?.inIssue && latest.issue) result.issue = latest.issue;
     }
     return result;
   });
@@ -193,22 +201,22 @@ export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
   return { state: next, operations, finished, write, started };
 }
 
-export function reportLedger(state, index, inLocalTask, rawLocalTask) {
+export function reportLedger(state, index, inIssue, rawIssue) {
   const { id, task } = taskAt(state, index, 'todo_report');
-  if (typeof inLocalTask !== 'boolean') throw new Error('todo_report: `inLocalTask` must be a boolean');
-  if (rawLocalTask !== undefined && (typeof rawLocalTask !== 'string' || rawLocalTask.trim().length === 0)) {
-    throw new Error('todo_report: `localTask` must be a non-empty string');
+  if (typeof inIssue !== 'boolean') throw new Error('todo_report: `inIssue` must be a boolean');
+  if (rawIssue !== undefined && (typeof rawIssue !== 'string' || rawIssue.trim().length === 0)) {
+    throw new Error('todo_report: `issue` must be a non-empty string');
   }
-  let localTask = rawLocalTask?.trim();
-  if (inLocalTask && localTask === undefined) {
+  let issue = rawIssue?.trim();
+  if (inIssue && issue === undefined) {
     const previous = state.lastReportTaskId === id ? task.reports.at(-1) : undefined;
-    if (previous?.inLocalTask !== true || typeof previous.localTask !== 'string') {
-      throw new Error('todo_report: `localTask` is required when entering a local task');
+    if (previous?.inIssue !== true || typeof previous.issue !== 'string') {
+      throw new Error('todo_report: `issue` is required when entering an issue');
     }
-    localTask = previous.localTask;
+    issue = previous.issue;
   }
-  if (!inLocalTask && localTask !== undefined) {
-    throw new Error('todo_report: omit `localTask` when `inLocalTask` is false');
+  if (!inIssue && issue !== undefined) {
+    throw new Error('todo_report: omit `issue` when `inIssue` is false');
   }
   if (task.status !== 'in_progress') {
     throw new Error(`todo_report: task ${index} is ${task.status}, start it before reporting work`);
@@ -219,7 +227,7 @@ export function reportLedger(state, index, inLocalTask, rawLocalTask) {
       throw new Error('todo_report: finish the previous task before switching goals, or explicitly reorder the plan');
     }
   }
-  const report = { index, inLocalTask, ...(localTask === undefined ? {} : { localTask }) };
+  const report = { index, inIssue, ...(issue === undefined ? {} : { issue }) };
   const next = clone(state);
   next.nodes.find((node) => node.id === id).reports.push(report);
   next.lastReportTaskId = id;
@@ -244,7 +252,7 @@ export function currentView(state) {
     const result = { index: first + offset + 1, content: task.content, status: task.status };
     if (task.status === 'in_progress' && state.lastReportTaskId === id && task.reports.length > 0) {
       const latest = task.reports.at(-1);
-      if (latest.inLocalTask) result.localTask = latest.localTask;
+      if (latest.inIssue) result.issue = latest.issue;
     }
     return result;
   });
@@ -331,7 +339,7 @@ export function foldLedgerEvent(state, event) {
     const task = next.nodes.find((node) => node.id === operation.taskId);
     if (!task) return state;
     task.reports.push({
-      ...operation.report,
+      ...normalizeReport(operation.report),
       seq: event.seq,
       time: event.time,
     });

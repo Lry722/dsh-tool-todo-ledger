@@ -53,6 +53,7 @@ test('reminder names the in-progress task by content', () => {
   assert.equal(notice.source.kind, 'todo-ledger-reminder');
   assert.equal(notice.source.form, 'notice');
   assert.match(notice.content[0].text, /used tools without todo_report/);
+  assert.match(notice.content[0].text, /State inIssue explicitly and provide issue when entering an issue/);
   assert.ok(notice.content[0].text.includes(`Main task ${JSON.stringify(content)} is in progress`));
   assert.doesNotMatch(notice.content[0].text, /bash|read/);
 });

@@ -88,15 +88,17 @@ test('composite writes preserve separate start, report and finish operations', a
   const env = harness();
   const created = await env.tools.todo_write.execute({ todos: ['Task'], start: 1 }, env.exec);
   assert.deepEqual(created.started, { index: 1, taskId: 't1', status: 'in_progress' });
-  const reported = await env.tools.todo_report.execute({ index: 1, inLocalTask: true, localTask: 'Local' }, env.exec);
-  const maintained = await env.tools.todo_report.execute({ index: 1, inLocalTask: true }, env.exec);
+  const reported = await env.tools.todo_report.execute({ index: 1, inIssue: true, issue: 'Local' }, env.exec);
+  const maintained = await env.tools.todo_report.execute({ index: 1, inIssue: true }, env.exec);
   const finished = await env.tools.todo_write.execute({ finish: 1 }, env.exec);
   assert.deepEqual(finished.finished, { index: 1, taskId: 't1', status: 'completed' });
   assert.deepEqual(reported, {});
   assert.deepEqual(maintained, {});
   assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start', 'report', 'report', 'finish']);
-  assert.equal(env.appended[2].data.ledger.report.localTask, 'Local');
-  assert.equal(env.appended[3].data.ledger.report.localTask, 'Local');
+  assert.equal(env.appended[2].data.ledger.report.inIssue, true);
+  assert.equal(env.appended[2].data.ledger.report.issue, 'Local');
+  assert.equal(env.appended[3].data.ledger.report.inIssue, true);
+  assert.equal(env.appended[3].data.ledger.report.issue, 'Local');
   assert.equal(env.appended[1].data.ledger.callId, 'call-1');
   const read = await env.tools.todo_read.execute({}, env.exec);
   assert.deepEqual(read.tasks, [{ index: 1, content: 'Task', status: 'completed' }]);
@@ -170,6 +172,6 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
     }
     const parameters = Object.values(tool.parameters).map((parameter) => parameter.description ?? '');
     const text = [tool.description, ...parameters].join('\n');
-    assert.doesNotMatch(text, /\b(?:ledger|step|stateless|voids|voided|bounded|top-level|1-based)\b/i, tool.name);
+    assert.doesNotMatch(text, /\b(?:ledger|step|stateless|voids|voided|bounded|top-level|1-based|localTask|local task)\b/i, tool.name);
   }
 });

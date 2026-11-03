@@ -7,7 +7,9 @@ test('external prompts load and interpolate review data verbatim', () => {
   assert.match(REPORTING_SECTION, /every assistant message/);
   assert.match(REPORTING_SECTION, /exactly one todo_report call/);
   assert.match(REPORTING_SECTION, /no other tool calls/);
-  assert.match(REPORTING_SECTION, /Local tasks are only report labels/);
+  assert.match(REPORTING_SECTION, /An issue is a concrete piece of work/);
+  assert.match(REPORTING_SECTION, /Issues are only report labels/);
+  assert.doesNotMatch(REPORTING_SECTION, /local task|localTask/i);
   assert.doesNotMatch(REPORTING_SECTION, /text-only/);
   assert.match(REVIEW_POLICY, /Review the proposed todo_write operation/);
   for (const prompt of [REPORTING_SECTION, REVIEW_POLICY, reviewRequest([], {})]) {

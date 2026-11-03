@@ -9,17 +9,17 @@
     }
   },
   "todo_read": {
-    "description": "Read the current main task list and active local task, or export the complete task history to a temporary JSON file.",
+    "description": "Read the current main task list and active issue, or export the complete task history to a temporary JSON file.",
     "parameters": {
-      "full": "When true, exports the full history, including completed and removed tasks, plan changes, and local-task reports. When false or omitted, returns the current plan starting from the most recently completed task."
+      "full": "When true, exports the full history, including completed and removed tasks, plan changes, and issue reports. When false or omitted, returns the current plan starting from the most recently completed task."
     }
   },
   "todo_report": {
-    "description": "Identify the main task and optional local task that the current work belongs to.",
+    "description": "Identify the main task and optional issue that the current work belongs to.",
     "parameters": {
       "index": "Number of the in-progress main task shown by todo_read. Switching main tasks requires the previous one to be completed or the plan to be explicitly reordered.",
-      "inLocalTask": "Set true for a separate, time-consuming local task; set false for a quick routine action directly serving the main task.",
-      "localTask": "A short name for the local task. Required to enter or change a local task. When inLocalTask is true, omit it to continue the current local task. When inLocalTask is false, always omit it."
+      "inIssue": "Set true for a separate, time-consuming issue; set false for a quick routine action directly serving the main task.",
+      "issue": "A short name for the issue. Required to enter or change an issue. When inIssue is true, omit it to continue the current issue. When inIssue is false, always omit it."
     }
   }
 }

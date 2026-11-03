@@ -22,7 +22,7 @@ export function reportReminder(content) {
   return createUserMessage({
     content: [{
       type: 'text',
-      text: `The previous step used tools without todo_report. Main task ${JSON.stringify(content)} is in progress, so this step must include exactly one todo_report call alongside its other tool calls. State inLocalTask explicitly and provide localTask when entering a local task.`,
+      text: `The previous step used tools without todo_report. Main task ${JSON.stringify(content)} is in progress, so this step must include exactly one todo_report call alongside its other tool calls. State inIssue explicitly and provide issue when entering an issue.`,
     }],
     source: {
       kind: REMINDER_SOURCE,

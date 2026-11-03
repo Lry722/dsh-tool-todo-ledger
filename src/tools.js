@@ -150,14 +150,14 @@ export function createLedgerTools(ctx, config) {
           required: true,
           description: TOOL_PROMPTS.todo_report.parameters.index,
         },
-        inLocalTask: {
+        inIssue: {
           type: 'boolean',
           required: true,
-          description: TOOL_PROMPTS.todo_report.parameters.inLocalTask,
+          description: TOOL_PROMPTS.todo_report.parameters.inIssue,
         },
-        localTask: {
+        issue: {
           type: 'string',
-          description: TOOL_PROMPTS.todo_report.parameters.localTask,
+          description: TOOL_PROMPTS.todo_report.parameters.issue,
         },
       },
       output: { schema: OUTPUT_SCHEMA, render: textOutput },
@@ -165,8 +165,8 @@ export function createLedgerTools(ctx, config) {
         const result = reportLedger(
           owningState(ctx, exec, 'todo_report'),
           args.index,
-          args.inLocalTask,
-          args.localTask,
+          args.inIssue,
+          args.issue,
         );
         appendOperation(exec, result.state, {
           operation: 'report',

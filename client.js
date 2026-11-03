@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
       statusCompleted: 'Completed',
       statusActive: 'In progress',
       statusPending: 'Pending',
-      currentLocalTask: 'Current local task',
+      currentIssue: 'Current issue',
       jumpToStart: 'Jump to the step that started this task',
       jumpFailed: 'Could not locate the step that started this task',
     };
@@ -32,7 +32,7 @@ window.__ModuleLoader__.load({
       statusCompleted: '已完成',
       statusActive: '进行中',
       statusPending: '待办',
-      currentLocalTask: '当前局部任务',
+      currentIssue: '当前 issue',
       jumpToStart: '跳转到开始此任务的步骤',
       jumpFailed: '无法定位开始此任务的步骤',
     };
@@ -65,10 +65,10 @@ window.__ModuleLoader__.load({
       .todo-ledger-state__root[data-state="ongoing"]{color:var(--dsw-alias-state-success-primary)}
       .todo-ledger-state__root[data-state="idle"]{color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-dock__entry{min-width:0}
-      .todo-ledger-dock__local{display:flex;align-items:center;gap:6px;min-width:0;padding-left:26px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-      .todo-ledger-dock__local--nested{margin-top:4px}
+      .todo-ledger-dock__issue{display:flex;align-items:center;gap:6px;min-width:0;padding-left:26px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+      .todo-ledger-dock__issue--nested{margin-top:4px}
       .todo-ledger-dock__branch{flex:none;color:var(--dsw-alias-label-tertiary)}
-      .todo-ledger-dock__local-content{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .todo-ledger-dock__issue-content{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .todo-ledger-dock__jump{width:100%;padding:0;border:0;background:transparent;font-family:inherit;text-align:left;cursor:pointer}
       .todo-ledger-dock__jump:hover .todo-ledger-dock__content{color:var(--dsw-alias-label-primary);text-decoration:underline;text-underline-offset:3px}
       .todo-ledger-dock__jump:focus-visible{outline:1px solid var(--dsw-alias-brand-primary);outline-offset:2px;border-radius:2px}
@@ -151,14 +151,14 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function LocalTaskLine({ text, t, nested = false }) {
+    function IssueLine({ text, t, nested = false }) {
       return h('div', {
-        className: `todo-ledger-dock__local${nested ? ' todo-ledger-dock__local--nested' : ''}`,
+        className: `todo-ledger-dock__issue${nested ? ' todo-ledger-dock__issue--nested' : ''}`,
         role: 'note',
-        'aria-label': `${t('currentLocalTask')}: ${text}`,
+        'aria-label': `${t('currentIssue')}: ${text}`,
       },
         h('span', { className: 'todo-ledger-dock__branch', 'aria-hidden': true }, '↳'),
-        h('span', { className: 'todo-ledger-dock__local-content', title: text }, text),
+        h('span', { className: 'todo-ledger-dock__issue-content', title: text }, text),
       );
     }
 
@@ -245,7 +245,7 @@ window.__ModuleLoader__.load({
       const [jumpFailed, setJumpFailed] = React.useState(false);
       if (todos.length === 0) return null;
       const statusLabels = { completed: t('statusCompleted'), in_progress: t('statusActive'), pending: t('statusPending') };
-      const activeLocal = todos.find((item) => item.status === 'in_progress' && item.localTask);
+      const activeIssue = todos.find((item) => item.status === 'in_progress' && item.issue);
       const jump = async (item) => {
         if (jumping !== null) return;
         setJumping(item.startCallId);
@@ -269,7 +269,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'todo-ledger-dock__progress' }, progressLabel(todos, t)),
             h('span', { className: 'todo-ledger-dock__chevron', 'aria-hidden': true }, h(ChevronIcon, { up: collapsed })),
           ),
-          collapsed && activeLocal ? h(LocalTaskLine, { text: activeLocal.localTask, t }) : null,
+          collapsed && activeIssue ? h(IssueLine, { text: activeIssue.issue, t }) : null,
           !collapsed ? h('ul', { className: 'todo-ledger-dock__list' }, todos.map((item, index) => h('li', {
             key: `${index}:${item.content}`,
             className: 'todo-ledger-dock__entry',
@@ -288,7 +288,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'todo-ledger-dock__glyph', role: 'img', 'aria-label': statusLabels[item.status] }, h(StateDot, { status: item.status })),
               h('span', { className: 'todo-ledger-dock__content' }, item.content),
             ),
-            item.status === 'in_progress' && item.localTask ? h(LocalTaskLine, { text: item.localTask, t, nested: true }) : null,
+            item.status === 'in_progress' && item.issue ? h(IssueLine, { text: item.issue, t, nested: true }) : null,
           ))) : null,
           jumpFailed ? h('div', { className: 'todo-ledger-dock__jump-error', role: 'alert' }, t('jumpFailed')) : null,
         ),

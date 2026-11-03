@@ -74,23 +74,23 @@ test('composite updates validate fully without mutating the input state', () => 
   ]);
 });
 
-test('reports validate local tasks and expose only the active local task', () => {
+test('reports validate issues and expose only the active issue', () => {
   const started = startLedger(planned(), 1).state;
-  assert.throws(() => reportLedger(started, 1, true), /localTask.*required/);
-  assert.throws(() => reportLedger(started, 1, false, 'Nested'), /omit `localTask`/);
+  assert.throws(() => reportLedger(started, 1, true), /issue.*required/);
+  assert.throws(() => reportLedger(started, 1, false, 'Nested'), /omit `issue`/);
   const reported = reportLedger(started, 1, true, 'Inspect official API').state;
   assert.deepEqual(currentView(reported).tasks[0], {
     index: 1,
     content: 'Confirm requirements',
     status: 'in_progress',
-    localTask: 'Inspect official API',
+    issue: 'Inspect official API',
   });
   const maintained = reportLedger(reported, 1, true).state;
-  assert.equal(currentView(maintained).tasks[0].localTask, 'Inspect official API');
-  assert.equal(maintained.nodes[0].reports.at(-1).localTask, 'Inspect official API');
+  assert.equal(currentView(maintained).tasks[0].issue, 'Inspect official API');
+  assert.equal(maintained.nodes[0].reports.at(-1).issue, 'Inspect official API');
   const topLevel = reportLedger(maintained, 1, false).state;
-  assert.equal(currentView(topLevel).tasks[0].localTask, undefined);
-  assert.throws(() => reportLedger(topLevel, 1, true), /localTask.*required.*entering/);
+  assert.equal(currentView(topLevel).tasks[0].issue, undefined);
+  assert.throws(() => reportLedger(topLevel, 1, true), /issue.*required.*entering/);
 });
 
 test('reorder voids unfinished suffix, preserves completion and renumbers replacements', () => {
@@ -113,7 +113,7 @@ test('reorder voids unfinished suffix, preserves completion and renumbers replac
     { index: 5, content: 'Update docs', status: 'pending' },
   ]);
   assert.deepEqual(result.state.nodes.slice(1, 3).map((node) => node.status), ['void', 'void']);
-  assert.equal(result.state.nodes[1].reports[0].localTask, 'Query API');
+  assert.equal(result.state.nodes[1].reports[0].issue, 'Query API');
   assert.equal(result.state.lastReportTaskId, null);
 });
 
@@ -173,6 +173,37 @@ test('event folding reconstructs plan, void history and reports', () => {
   assert.equal(state.nodes[0].status, 'void');
   assert.equal(state.nodes[0].reports.length, 1);
   assert.deepEqual(numberedPlan(state), [{ index: 1, content: 'Replacement', status: 'pending' }]);
+});
+
+test('legacy local-task reports replay as issues', () => {
+  let state = writeLedger(emptyLedger(), ['Task']).state;
+  state = startLedger(state, 1).state;
+  state = foldLedgerEvent(state, {
+    type: 'todo/write', seq: 3, time: 300,
+    data: {
+      todos: legacyTodos(state),
+      ledger: {
+        version: 1, operation: 'report', taskId: 't1',
+        report: { index: 1, inLocalTask: true, localTask: 'Legacy issue' },
+      },
+    },
+  });
+  assert.deepEqual(state.nodes[0].reports[0], {
+    index: 1, inIssue: true, issue: 'Legacy issue', seq: 3, time: 300,
+  });
+  assert.equal(currentView(state).tasks[0].issue, 'Legacy issue');
+  state = foldLedgerEvent(state, {
+    type: 'todo/write', seq: 4, time: 400,
+    data: {
+      todos: legacyTodos(state),
+      ledger: {
+        version: 1, operation: 'report', taskId: 't1',
+        report: { index: 1, inLocalTask: false },
+      },
+    },
+  });
+  assert.deepEqual(state.nodes[0].reports[1], { index: 1, inIssue: false, seq: 4, time: 400 });
+  assert.equal(currentView(state).tasks[0].issue, undefined);
 });
 
 test('legacy whole-list events remain replayable', () => {

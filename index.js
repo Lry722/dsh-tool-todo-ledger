@@ -11,8 +11,8 @@ export const Config = z.object({ reviewEnabled: z.boolean().default(false).volat
 
 const reportSchema = zod.object({
   index: zod.number().int(),
-  inLocalTask: zod.boolean(),
-  localTask: zod.string().optional(),
+  inIssue: zod.boolean(),
+  issue: zod.string().optional(),
   seq: zod.number().optional(),
   time: zod.number().optional(),
 });
@@ -20,7 +20,7 @@ const reportSchema = zod.object({
 const todoViewSchema = zod.array(zod.object({
   content: zod.string(),
   status: zod.enum(['pending', 'in_progress', 'completed']),
-  localTask: zod.string().optional(),
+  issue: zod.string().optional(),
   startCallId: zod.string().optional(),
   startSeq: zod.number().optional(),
 }));
@@ -52,7 +52,7 @@ export function apply(ctx, config) {
     init: emptyLedger,
     apply: foldLedgerEvent,
     wire: { viewSchema: todoViewSchema, view: dockTodos },
-    stateVersion: 3,
+    stateVersion: 4,
   });
   installReportReminder(ctx);
 
