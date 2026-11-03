@@ -1,0 +1,157 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  currentView,
+  emptyLedger,
+  finishLedger,
+  foldLedgerEvent,
+  legacyTodos,
+  numberedPlan,
+  reportLedger,
+  startLedger,
+  writeLedger,
+} from '../src/ledger.js';
+
+function planned() {
+  return writeLedger(emptyLedger(), ['Confirm requirements', 'Implement ledger', 'Add tests']).state;
+}
+
+test('append assigns stable ids and current indices', () => {
+  const result = writeLedger(emptyLedger(), ['First', 'Second']);
+  assert.deepEqual(result.added, [
+    { index: 1, id: 't1', content: 'First' },
+    { index: 2, id: 't2', content: 'Second' },
+  ]);
+  assert.deepEqual(legacyTodos(result.state), [
+    { content: 'First', status: 'pending' },
+    { content: 'Second', status: 'pending' },
+  ]);
+});
+
+test('tasks must start in order and finish explicitly', () => {
+  const state = planned();
+  assert.throws(() => startLedger(state, 2), /finish earlier task 1/);
+  const started = startLedger(state, 1).state;
+  assert.throws(() => startLedger(started, 1), /not pending/);
+  assert.throws(() => finishLedger(started, 2), /not in_progress/);
+  const finished = finishLedger(started, 1).state;
+  assert.equal(startLedger(finished, 2).state.nodes[1].status, 'in_progress');
+});
+
+test('reports validate local tasks and expose only the active local task', () => {
+  const started = startLedger(planned(), 1).state;
+  assert.throws(() => reportLedger(started, 1, true), /localTask.*required/);
+  assert.throws(() => reportLedger(started, 1, false, 'Nested'), /omit `localTask`/);
+  const reported = reportLedger(started, 1, true, 'Inspect official API').state;
+  assert.deepEqual(currentView(reported).tasks[0], {
+    index: 1,
+    content: 'Confirm requirements',
+    status: 'in_progress',
+    localTask: 'Inspect official API',
+  });
+  const maintained = reportLedger(reported, 1, true).state;
+  assert.equal(currentView(maintained).tasks[0].localTask, 'Inspect official API');
+  assert.equal(maintained.nodes[0].reports.at(-1).localTask, 'Inspect official API');
+  const topLevel = reportLedger(maintained, 1, false).state;
+  assert.equal(currentView(topLevel).tasks[0].localTask, undefined);
+  assert.throws(() => reportLedger(topLevel, 1, true), /localTask.*required.*entering/);
+});
+
+test('reorder voids unfinished suffix, preserves completion and renumbers replacements', () => {
+  let state = planned();
+  state = startLedger(state, 1).state;
+  state = finishLedger(state, 1).state;
+  state = startLedger(state, 2).state;
+  state = reportLedger(state, 2, true, 'Query API').state;
+  const result = writeLedger(state, ['Query DSH API', 'Continue ledger', 'Add tests', 'Update docs'], 2);
+
+  assert.deepEqual(result.invalidated.map((task) => [task.oldIndex, task.content, task.status]), [
+    [2, 'Implement ledger', 'in_progress'],
+    [3, 'Add tests', 'pending'],
+  ]);
+  assert.deepEqual(numberedPlan(result.state), [
+    { index: 1, content: 'Confirm requirements', status: 'completed' },
+    { index: 2, content: 'Query DSH API', status: 'pending' },
+    { index: 3, content: 'Continue ledger', status: 'pending' },
+    { index: 4, content: 'Add tests', status: 'pending' },
+    { index: 5, content: 'Update docs', status: 'pending' },
+  ]);
+  assert.deepEqual(result.state.nodes.slice(1, 3).map((node) => node.status), ['void', 'void']);
+  assert.equal(result.state.nodes[1].reports[0].localTask, 'Query API');
+  assert.equal(result.state.lastReportTaskId, null);
+});
+
+test('an empty reorder explicitly voids unfinished work', () => {
+  const result = writeLedger(planned(), [], 2);
+  assert.deepEqual(numberedPlan(result.state), [
+    { index: 1, content: 'Confirm requirements', status: 'pending' },
+  ]);
+  assert.equal(result.state.nodes.filter((node) => node.status === 'void').length, 2);
+});
+
+test('default view starts at the last completed task', () => {
+  let state = planned();
+  state = startLedger(state, 1).state;
+  state = finishLedger(state, 1).state;
+  state = startLedger(state, 2).state;
+  state = finishLedger(state, 2).state;
+  assert.deepEqual(currentView(state), {
+    tasks: [{ index: 2, content: 'Implement ledger', status: 'completed' }, { index: 3, content: 'Add tests', status: 'pending' }],
+  });
+});
+
+test('event folding reconstructs plan, void history and reports', () => {
+  const write = writeLedger(emptyLedger(), ['One', 'Two']);
+  let state = foldLedgerEvent(emptyLedger(), {
+    type: 'todo/write', seq: 1, time: 100,
+    data: {
+      todos: legacyTodos(write.state),
+      ledger: {
+        version: 1, operation: 'write', mode: 'append', added: write.added.map(({ id, content }) => ({ id, content })), invalidatedIds: [],
+      },
+    },
+  });
+  assert.deepEqual(numberedPlan(state), numberedPlan(write.state));
+  const started = startLedger(state, 1);
+  state = foldLedgerEvent(state, {
+    type: 'todo/write', seq: 2, time: 200,
+    data: { todos: legacyTodos(started.state), ledger: { version: 1, operation: 'start', taskId: started.taskId } },
+  });
+  const reported = reportLedger(state, 1, true, 'Local');
+  state = foldLedgerEvent(state, {
+    type: 'todo/write', seq: 3, time: 300,
+    data: { todos: legacyTodos(reported.state), ledger: { version: 1, operation: 'report', taskId: reported.taskId, report: reported.report } },
+  });
+  assert.equal(state.nodes[0].reports[0].seq, 3);
+  const reordered = writeLedger(state, ['Replacement'], 1);
+  state = foldLedgerEvent(state, {
+    type: 'todo/write', seq: 4, time: 400,
+    data: {
+      todos: legacyTodos(reordered.state),
+      ledger: {
+        version: 1, operation: 'write', mode: 'reorder', start: 1,
+        added: reordered.added.map(({ id, content }) => ({ id, content })), invalidatedIds: ['t1', 't2'],
+      },
+    },
+  });
+  assert.equal(state.nodes[0].status, 'void');
+  assert.equal(state.nodes[0].reports.length, 1);
+  assert.deepEqual(numberedPlan(state), [{ index: 1, content: 'Replacement', status: 'pending' }]);
+});
+
+test('legacy whole-list events remain replayable', () => {
+  const state = foldLedgerEvent(emptyLedger(), {
+    type: 'todo/write', seq: 7, time: 700,
+    data: { todos: [{ content: 'Legacy', status: 'completed' }] },
+  });
+  assert.deepEqual(numberedPlan(state), [{ index: 1, content: 'Legacy', status: 'completed' }]);
+});
+
+test('the completed dock view remains non-empty across turn boundaries', () => {
+  let state = writeLedger(emptyLedger(), ['One']).state;
+  state = startLedger(state, 1).state;
+  state = finishLedger(state, 1).state;
+  const next = foldLedgerEvent(state, { type: 'turn/start', seq: 8, time: 800, data: {} });
+  assert.strictEqual(next, state);
+  assert.deepEqual(legacyTodos(next), [{ content: 'One', status: 'completed' }]);
+});

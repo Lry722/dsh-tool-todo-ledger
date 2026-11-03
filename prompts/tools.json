@@ -1,0 +1,35 @@
+{
+  "todo_write": {
+    "description": "Append main tasks, or explicitly reorder unfinished work. Completed tasks and history are immutable. New tasks start pending.",
+    "parameters": {
+      "todos": "New main task descriptions. During reorder, an empty array removes unfinished tasks without adding replacements.",
+      "start": "Existing task number at which to remove unfinished tasks from the current plan and append replacements. Omit to append."
+    }
+  },
+  "todo_start": {
+    "description": "Start a pending main task. Earlier tasks in the current plan must be completed.",
+    "parameters": {
+      "index": "Task number shown by todo_read."
+    }
+  },
+  "todo_finish": {
+    "description": "Mark the current in-progress main task completed.",
+    "parameters": {
+      "index": "Task number shown by todo_read."
+    }
+  },
+  "todo_read": {
+    "description": "Read the current main task list and active local task, or export the complete task history to a temporary JSON file.",
+    "parameters": {
+      "full": "When true, exports the full history, including completed and removed tasks, plan changes, and local-task reports. When false or omitted, returns the current plan starting from the most recently completed task."
+    }
+  },
+  "todo_report": {
+    "description": "Identify the main task and optional local task that the current work belongs to.",
+    "parameters": {
+      "index": "Number of the in-progress main task shown by todo_read. Switching main tasks requires the previous one to be completed or the plan to be explicitly reordered.",
+      "inLocalTask": "Set true for a separate, time-consuming local task; set false for a quick routine action directly serving the main task.",
+      "localTask": "A short name for the local task. Required to enter or change a local task. When inLocalTask is true, omit it to continue the current local task. When inLocalTask is false, always omit it."
+    }
+  }
+}

@@ -1,0 +1,7 @@
+CURRENT_PROJECT_INSTRUCTIONS
+
+{{instructions}}
+
+PROPOSED_TODO_WRITE
+
+{{todoWrite}}
