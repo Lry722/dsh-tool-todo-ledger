@@ -9,20 +9,20 @@ export function missingReport(message) {
   return !calls.some((block) => block.name === 'todo_report');
 }
 
-export function inProgressTaskIndex(state) {
-  if (!state || !Array.isArray(state.currentIds)) return 0;
-  const index = state.currentIds.findIndex((id) => {
+export function inProgressTask(state) {
+  if (!state || !Array.isArray(state.currentIds)) return undefined;
+  for (const id of state.currentIds) {
     const task = state.nodes?.find((node) => node.id === id);
-    return task?.status === 'in_progress';
-  });
-  return index < 0 ? 0 : index + 1;
+    if (task?.status === 'in_progress') return task;
+  }
+  return undefined;
 }
 
-export function reportReminder(index) {
+export function reportReminder(content) {
   return createUserMessage({
     content: [{
       type: 'text',
-      text: `The previous step used tools without todo_report. Main task ${index} is in progress, so this step must include exactly one todo_report call alongside its other tool calls. State inLocalTask explicitly and provide localTask when entering a local task.`,
+      text: `The previous step used tools without todo_report. Main task ${JSON.stringify(content)} is in progress, so this step must include exactly one todo_report call alongside its other tool calls. State inLocalTask explicitly and provide localTask when entering a local task.`,
     }],
     source: {
       kind: REMINDER_SOURCE,
@@ -39,11 +39,11 @@ export function installReportReminder(ctx) {
     if (!message?.content) return;
     const missing = missingReport(message);
     if (!missing) return;
-    const index = inProgressTaskIndex(ctx.sessionProjections.stateOf(session, 'todoLedger'));
-    if (index === 0) return;
+    const task = inProgressTask(ctx.sessionProjections.stateOf(session, 'todoLedger'));
+    if (!task) return;
     const agent = ctx.agents.get(session.id);
     if (!agent) return;
-    const notice = reportReminder(index);
+    const notice = reportReminder(task.content);
     // Session observers run inside the append transaction, so queue the notice
     // for the next admitted step instead of appending from this stack.
     queueMicrotask(() => {

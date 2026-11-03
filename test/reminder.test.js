@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  inProgressTaskIndex,
+  inProgressTask,
   installReportReminder,
   missingReport,
   reportReminder,
@@ -11,7 +11,7 @@ const call = (name) => ({ type: 'tool-call', id: `${name}-call`, name, arguments
 const message = (...names) => ({ content: names.map(call) });
 const ledger = (...statuses) => ({
   currentIds: statuses.map((_, index) => `t${index + 1}`),
-  nodes: statuses.map((status, index) => ({ id: `t${index + 1}`, status })),
+  nodes: statuses.map((status, index) => ({ id: `t${index + 1}`, content: `Task ${index + 1}`, status })),
 });
 
 function harness({ state, agent = true } = {}) {
@@ -44,15 +44,16 @@ test('missing report detection ignores exempt tool calls and reported steps', ()
   assert.equal(missingReport(message()), false);
 });
 
-test('reminder names the in-progress task without listing tools', () => {
-  assert.equal(inProgressTaskIndex(ledger('completed', 'in_progress', 'pending')), 2);
-  assert.equal(inProgressTaskIndex(ledger('completed')), 0);
-  assert.equal(inProgressTaskIndex(undefined), 0);
-  const notice = reportReminder(2);
+test('reminder names the in-progress task by content', () => {
+  assert.equal(inProgressTask(ledger('completed', 'in_progress', 'pending')).content, 'Task 2');
+  assert.equal(inProgressTask(ledger('completed')), undefined);
+  assert.equal(inProgressTask(undefined), undefined);
+  const content = 'Inspect "official" API';
+  const notice = reportReminder(content);
   assert.equal(notice.source.kind, 'todo-ledger-reminder');
   assert.equal(notice.source.form, 'notice');
   assert.match(notice.content[0].text, /used tools without todo_report/);
-  assert.match(notice.content[0].text, /Main task 2 is in progress/);
+  assert.ok(notice.content[0].text.includes(`Main task ${JSON.stringify(content)} is in progress`));
   assert.doesNotMatch(notice.content[0].text, /bash|read/);
 });
 
