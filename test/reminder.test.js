@@ -31,6 +31,10 @@ function assistantEvent(content, extra = {}) {
   return { type: 'assistant/message', data: { message: { content }, ...extra } };
 }
 
+function flush() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 test('missing report detection ignores exempt tool calls and reported steps', () => {
   assert.deepEqual(missingReportTools(message('bash', 'read')), ['bash', 'read']);
   assert.deepEqual(missingReportTools(message('bash', 'bash')), ['bash']);
@@ -50,29 +54,35 @@ test('reminder names the in-progress task and offending tools', () => {
   assert.match(notice.content[0].text, /Main task 2 is in progress/);
 });
 
-test('a violating step queues one notice for the next request', () => {
+test('a violating step queues one notice after the append transaction', async () => {
   const env = harness({ state: ledger('completed', 'in_progress') });
   env.fire(assistantEvent([call('bash')]));
+  assert.equal(env.injected.length, 0);
+  await flush();
   assert.equal(env.injected.length, 1);
   assert.match(env.injected[0].content[0].text, /without todo_report/);
 
   env.fire({ type: 'user/message', data: {} });
   env.fire(assistantEvent([call('bash'), call('todo_report')]));
   env.fire(assistantEvent([]));
+  await flush();
   assert.equal(env.injected.length, 1);
 });
 
-test('reminders require an in-progress task, a live agent and a completed step', () => {
+test('reminders require an in-progress task, a live agent and a completed step', async () => {
   const states = [undefined, ledger('completed'), ledger('pending')];
   for (const state of states) {
     const env = harness({ state });
     env.fire(assistantEvent([call('bash')]));
+    await flush();
     assert.equal(env.injected.length, 0);
   }
   const interrupted = harness({ state: ledger('in_progress') });
   interrupted.fire(assistantEvent([call('bash')], { interrupted: true }));
+  await flush();
   assert.equal(interrupted.injected.length, 0);
   const detached = harness({ state: ledger('in_progress'), agent: false });
   detached.fire(assistantEvent([call('bash')]));
+  await flush();
   assert.equal(detached.injected.length, 0);
 });

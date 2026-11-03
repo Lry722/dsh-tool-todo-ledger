@@ -46,7 +46,15 @@ export function installReportReminder(ctx) {
     if (index === 0) return;
     const agent = ctx.agents.get(session.id);
     if (!agent) return;
-    // Queue the notice for the next model request before the turn closes.
-    agent.inject(reportReminder(names, index));
+    const notice = reportReminder(names, index);
+    // Session observers run inside the append transaction, so queue the notice
+    // for the next admitted step instead of appending from this stack.
+    queueMicrotask(() => {
+      try {
+        agent.inject(notice);
+      } catch {
+        // The agent may have been disposed before the notice was queued.
+      }
+    });
   });
 }
