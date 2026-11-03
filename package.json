@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-todo-ledger",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Incremental, event-sourced todo ledger with explicit task transitions and optional AGENTS.md review",
   "type": "module",
@@ -30,8 +30,8 @@
     "zod": "4.4.3"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.2"
   },
   "dsh": {
     "bundle": {
