@@ -3,6 +3,7 @@ import { z as zod } from 'zod';
 import { LEDGER_VERSION, dockTodos, emptyLedger, foldLedgerEvent } from './src/ledger.js';
 import { createLedgerTools } from './src/tools.js';
 import { REPORTING_SECTION } from './src/prompts.js';
+import { installReportReminder } from './src/reminder.js';
 
 export const name = 'tool-todo-ledger';
 export const inject = ['agents', 'llm', 'sessionProjections', 'systemPrompt', 'tools'];
@@ -53,6 +54,7 @@ export function apply(ctx, config) {
     wire: { viewSchema: todoViewSchema, view: dockTodos },
     stateVersion: 3,
   });
+  installReportReminder(ctx);
 
   const attached = new Map();
   const attach = (agent) => {
