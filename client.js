@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
 
     const en = {
       title: 'Review todo plans with AGENTS.md',
-      description: 'Before each todo_write, an independent model reviews the todo plan against the active project instructions. Violations are reported without blocking the write.',
+      description: 'Before each todo_write plan change, an independent model reviews the plan against the active project instructions. Violations are reported without blocking the change.',
       failed: 'Could not save preference',
       todoTitle: 'Tasks',
       done: '{done} done',
@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
     };
     const zh = {
       title: '使用 AGENTS.md 审查任务规划',
-      description: '每次 todo_write 前，由独立模型依据当前生效的项目指令审查任务规划。发现违例会明确提示，但不会阻塞写入。',
+      description: '每次 todo_write 修改规划前，由独立模型依据当前生效的项目指令进行审查。发现违例会明确提示，但不会阻塞修改。',
       failed: '无法保存设置',
       todoTitle: '任务',
       done: '已完成 {done}',

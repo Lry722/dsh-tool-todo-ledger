@@ -6,12 +6,10 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import {
   LEDGER_VERSION,
   currentView,
-  finishLedger,
   legacyTodos,
   numberedPlan,
   reportLedger,
-  startLedger,
-  writeLedger,
+  updateLedger,
 } from './ledger.js';
 import { reviewTodoWrite } from './review.js';
 import { TOOL_PROMPTS, reviewResult } from './prompts.js';
@@ -70,9 +68,16 @@ export function createLedgerTools(ctx, config) {
       parameters: {
         todos: {
           type: 'array',
-          required: true,
           description: TOOL_PROMPTS.todo_write.parameters.todos,
           items: { type: 'string' },
+        },
+        reorderFrom: {
+          type: 'integer',
+          description: TOOL_PROMPTS.todo_write.parameters.reorderFrom,
+        },
+        finish: {
+          type: 'integer',
+          description: TOOL_PROMPTS.todo_write.parameters.finish,
         },
         start: {
           type: 'integer',
@@ -81,15 +86,14 @@ export function createLedgerTools(ctx, config) {
       },
       output: { schema: OUTPUT_SCHEMA, render: textOutput },
       async execute(args, exec) {
-        const state = owningState(ctx, exec, 'todo_write');
-        const result = writeLedger(state, args.todos, args.start);
+        const result = updateLedger(owningState(ctx, exec, 'todo_write'), args);
         let review;
-        if (reviewEnabled()) {
+        if (result.write && reviewEnabled()) {
           const pending = {
-            mode: result.mode,
-            ...(result.start === undefined ? {} : { start: result.start }),
-            todos: result.added.map((task) => task.content),
-            invalidated: result.invalidated,
+            mode: result.write.mode,
+            ...(result.write.reorderFrom === undefined ? {} : { reorderFrom: result.write.reorderFrom }),
+            todos: result.write.added.map((task) => task.content),
+            invalidated: result.write.invalidated,
           };
           try {
             review = await reviewTodoWrite(ctx, exec.agent, pending, exec.signal);
@@ -98,52 +102,27 @@ export function createLedgerTools(ctx, config) {
             review = undefined;
           }
         }
-        appendOperation(exec, result.state, {
-          operation: 'write',
-          mode: result.mode,
-          ...(result.start === undefined ? {} : { start: result.start }),
-          added: result.added.map(({ id, content }) => ({ id, content })),
-          invalidatedIds: result.invalidated.map((task) => task.id),
-        });
+        for (const operation of result.operations) {
+          appendOperation(exec, operation.state, {
+            ...operation.ledger,
+            ...(operation.ledger.operation === 'start' ? { callId: String(exec.callId) } : {}),
+          });
+        }
         return {
-          mode: result.mode,
-          added: result.added,
-          ...(result.mode === 'reorder' ? {
-            invalidated: result.invalidated,
-            plan: numberedPlan(result.state),
+          ...(result.finished ? { finished: result.finished } : {}),
+          ...(result.write ? {
+            mode: result.write.mode,
+            added: result.write.added,
+            ...(result.write.mode === 'reorder' ? {
+              invalidated: result.write.invalidated,
+              plan: numberedPlan(result.state),
+            } : {}),
           } : {}),
+          ...(result.started ? { started: result.started } : {}),
           ...(review ? { review } : {}),
         };
       },
       presentCall: presentation('Update todo tasks', 'edit'),
-    }),
-    defineTool({
-      name: 'todo_start',
-      description: TOOL_PROMPTS.todo_start.description,
-      parameters: {
-        index: { type: 'integer', required: true, description: TOOL_PROMPTS.todo_start.parameters.index },
-      },
-      output: { schema: OUTPUT_SCHEMA, render: textOutput },
-      async execute(args, exec) {
-        const result = startLedger(owningState(ctx, exec, 'todo_start'), args.index);
-        appendOperation(exec, result.state, { operation: 'start', taskId: result.taskId, callId: String(exec.callId) });
-        return { index: args.index, taskId: result.taskId, status: 'in_progress' };
-      },
-      presentCall: presentation('Start todo task'),
-    }),
-    defineTool({
-      name: 'todo_finish',
-      description: TOOL_PROMPTS.todo_finish.description,
-      parameters: {
-        index: { type: 'integer', required: true, description: TOOL_PROMPTS.todo_finish.parameters.index },
-      },
-      output: { schema: OUTPUT_SCHEMA, render: textOutput },
-      async execute(args, exec) {
-        const result = finishLedger(owningState(ctx, exec, 'todo_finish'), args.index);
-        appendOperation(exec, result.state, { operation: 'finish', taskId: result.taskId });
-        return { index: args.index, taskId: result.taskId, status: 'completed' };
-      },
-      presentCall: presentation('Finish todo task'),
     }),
     defineTool({
       name: 'todo_read',

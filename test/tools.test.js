@@ -7,6 +7,7 @@ import { TOOL_PROMPTS } from '../src/prompts.js';
 function harness({ enabled = false, reviewText = '{"compliant":true}', instructions = [] } = {}) {
   let state = emptyLedger();
   let seq = 0;
+  let reviewCalls = 0;
   const appended = [];
   const events = new Map(instructions.map((text, index) => [index + 1, {
     type: 'user/message',
@@ -16,6 +17,7 @@ function harness({ enabled = false, reviewText = '{"compliant":true}', instructi
     sessionProjections: { stateOf: () => state },
     llm: {
       stream() {
+        reviewCalls += 1;
         return (async function* () {
           yield { type: 'text-delta', index: 0, text: reviewText };
           yield { type: 'finish', reason: { kind: 'stop' } };
@@ -43,12 +45,14 @@ function harness({ enabled = false, reviewText = '{"compliant":true}', instructi
     agent,
     appended,
     setEnabled(value) { current = value; },
+    reviewCalls() { return reviewCalls; },
     exec: { agent, callId: 'call-1', signal: new AbortController().signal },
   };
 }
 
 test('todo_write appends a replayable delta and volatile review config is read per call', async () => {
   const env = harness();
+  assert.deepEqual(Object.keys(env.tools), ['todo_write', 'todo_read', 'todo_report']);
   const first = await env.tools.todo_write.execute({ todos: ['First'] }, env.exec);
   assert.equal(first.review, undefined);
   assert.equal(first.added[0].index, 1);
@@ -80,13 +84,14 @@ test('review warnings are returned while technical failures stay invisible', asy
   assert.equal(malformed.appended.length, 1);
 });
 
-test('start, report and finish tools append their respective operations', async () => {
+test('composite writes preserve separate start, report and finish operations', async () => {
   const env = harness();
-  await env.tools.todo_write.execute({ todos: ['Task'] }, env.exec);
-  await env.tools.todo_start.execute({ index: 1 }, env.exec);
+  const created = await env.tools.todo_write.execute({ todos: ['Task'], start: 1 }, env.exec);
+  assert.deepEqual(created.started, { index: 1, taskId: 't1', status: 'in_progress' });
   const reported = await env.tools.todo_report.execute({ index: 1, inLocalTask: true, localTask: 'Local' }, env.exec);
   const maintained = await env.tools.todo_report.execute({ index: 1, inLocalTask: true }, env.exec);
-  await env.tools.todo_finish.execute({ index: 1 }, env.exec);
+  const finished = await env.tools.todo_write.execute({ finish: 1 }, env.exec);
+  assert.deepEqual(finished.finished, { index: 1, taskId: 't1', status: 'completed' });
   assert.deepEqual(reported, {});
   assert.deepEqual(maintained, {});
   assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start', 'report', 'report', 'finish']);
@@ -97,8 +102,66 @@ test('start, report and finish tools append their respective operations', async 
   assert.deepEqual(read.tasks, [{ index: 1, content: 'Task', status: 'completed' }]);
 });
 
+test('finish and start share one call without triggering plan review', async () => {
+  const env = harness({ enabled: true, instructions: ['Plan carefully.'] });
+  await env.tools.todo_write.execute({ todos: ['One', 'Two'], start: 1 }, env.exec);
+  assert.equal(env.reviewCalls(), 1);
+  const result = await env.tools.todo_write.execute({ finish: 1, start: 2 }, env.exec);
+  assert.equal(env.reviewCalls(), 1);
+  assert.deepEqual(result, {
+    finished: { index: 1, taskId: 't1', status: 'completed' },
+    started: { index: 2, taskId: 't2', status: 'in_progress' },
+  });
+  assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start', 'finish', 'start']);
+  assert.deepEqual(env.appended[2].data.todos, [
+    { content: 'One', status: 'completed' },
+    { content: 'Two', status: 'pending' },
+  ]);
+  assert.deepEqual(env.appended[3].data.todos, [
+    { content: 'One', status: 'completed' },
+    { content: 'Two', status: 'in_progress' },
+  ]);
+});
+
+test('reorder and start returns the final active plan', async () => {
+  const env = harness();
+  await env.tools.todo_write.execute({ todos: ['One', 'Two', 'Three'], start: 1 }, env.exec);
+  await env.tools.todo_write.execute({ finish: 1, start: 2 }, env.exec);
+  const result = await env.tools.todo_write.execute({
+    reorderFrom: 2,
+    todos: ['Replacement', 'Later'],
+    start: 2,
+  }, env.exec);
+  assert.equal(result.mode, 'reorder');
+  assert.deepEqual(result.invalidated.map((task) => task.content), ['Two', 'Three']);
+  assert.deepEqual(result.plan, [
+    { index: 1, content: 'One', status: 'completed' },
+    { index: 2, content: 'Replacement', status: 'in_progress' },
+    { index: 3, content: 'Later', status: 'pending' },
+  ]);
+  assert.deepEqual(env.appended.at(-2).data.ledger.reorderFrom, 2);
+  assert.equal(env.appended.at(-1).data.ledger.operation, 'start');
+});
+
+test('a failed composite call appends no partial operations', async () => {
+  const env = harness();
+  await env.tools.todo_write.execute({ todos: ['One', 'Two'], start: 1 }, env.exec);
+  const eventCount = env.appended.length;
+  await assert.rejects(
+    env.tools.todo_write.execute({ finish: 1, start: 3 }, env.exec),
+    /task index must be between/,
+  );
+  assert.equal(env.appended.length, eventCount);
+  const read = await env.tools.todo_read.execute({}, env.exec);
+  assert.deepEqual(read.tasks, [
+    { index: 1, content: 'One', status: 'in_progress' },
+    { index: 2, content: 'Two', status: 'pending' },
+  ]);
+});
+
 test('tool descriptions use defined task terminology instead of runtime jargon', () => {
   const { tools } = harness();
+  assert.deepEqual(Object.keys(TOOL_PROMPTS), Object.keys(tools));
   for (const tool of Object.values(tools)) {
     const prompt = TOOL_PROMPTS[tool.name];
     assert.equal(tool.description, prompt.description, `${tool.name} description`);

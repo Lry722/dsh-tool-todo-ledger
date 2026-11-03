@@ -1,21 +1,11 @@
 {
   "todo_write": {
-    "description": "Append main tasks, or explicitly reorder unfinished work. Completed tasks and history are immutable. New tasks start pending.",
+    "description": "Modify the main task plan and task states. Finish tasks, append or reorder work, and start pending tasks in that order. Completed tasks and history are immutable.",
     "parameters": {
-      "todos": "New main task descriptions. During reorder, an empty array removes unfinished tasks without adding replacements.",
-      "start": "Existing task number at which to remove unfinished tasks from the current plan and append replacements. Omit to append."
-    }
-  },
-  "todo_start": {
-    "description": "Start a pending main task. Earlier tasks in the current plan must be completed.",
-    "parameters": {
-      "index": "Task number shown by todo_read."
-    }
-  },
-  "todo_finish": {
-    "description": "Mark the current in-progress main task completed.",
-    "parameters": {
-      "index": "Task number shown by todo_read."
+      "todos": "New main task descriptions to append, or replacements when reorderFrom is set. Omit when only changing task states. With reorderFrom, omit or use an empty array to remove unfinished tasks without replacements.",
+      "reorderFrom": "Existing task number at which to remove unfinished tasks from the current plan and append replacements. Omit to append todos or only change task states.",
+      "finish": "Number of the current in-progress main task to complete before any planning changes.",
+      "start": "Number of the pending main task to start after any planning changes. Earlier tasks in the current plan must be completed."
     }
   },
   "todo_read": {

@@ -9,6 +9,7 @@ import {
   numberedPlan,
   reportLedger,
   startLedger,
+  updateLedger,
   writeLedger,
 } from '../src/ledger.js';
 
@@ -36,6 +37,41 @@ test('tasks must start in order and finish explicitly', () => {
   assert.throws(() => finishLedger(started, 2), /not in_progress/);
   const finished = finishLedger(started, 1).state;
   assert.equal(startLedger(finished, 2).state.nodes[1].status, 'in_progress');
+});
+
+test('composite updates finish, reorder and start in a fixed order', () => {
+  let state = writeLedger(emptyLedger(), ['Confirm', 'Implement', 'Test', 'Document']).state;
+  state = startLedger(state, 1).state;
+  state = finishLedger(state, 1).state;
+  state = startLedger(state, 2).state;
+  const result = updateLedger(state, {
+    finish: 2,
+    reorderFrom: 3,
+    todos: ['Test replacement', 'Write documentation'],
+    start: 3,
+  });
+
+  assert.deepEqual(result.operations.map((operation) => operation.ledger.operation), ['finish', 'write', 'start']);
+  assert.deepEqual(numberedPlan(result.state), [
+    { index: 1, content: 'Confirm', status: 'completed' },
+    { index: 2, content: 'Implement', status: 'completed' },
+    { index: 3, content: 'Test replacement', status: 'in_progress' },
+    { index: 4, content: 'Write documentation', status: 'pending' },
+  ]);
+  assert.deepEqual(result.state.nodes.slice(2, 4).map((node) => node.status), ['void', 'void']);
+});
+
+test('composite updates validate fully without mutating the input state', () => {
+  const state = startLedger(planned(), 1).state;
+  const before = structuredClone(state);
+  assert.throws(() => updateLedger(state, { finish: 1, start: 4 }), /task index must be between/);
+  assert.throws(() => updateLedger(state, {}), /provide todos, reorderFrom, finish, or start/);
+  assert.deepEqual(state, before);
+
+  const removed = updateLedger(state, { reorderFrom: 2 });
+  assert.deepEqual(numberedPlan(removed.state), [
+    { index: 1, content: 'Confirm requirements', status: 'in_progress' },
+  ]);
 });
 
 test('reports validate local tasks and expose only the active local task', () => {
@@ -129,7 +165,7 @@ test('event folding reconstructs plan, void history and reports', () => {
     data: {
       todos: legacyTodos(reordered.state),
       ledger: {
-        version: 1, operation: 'write', mode: 'reorder', start: 1,
+        version: 1, operation: 'write', mode: 'reorder', reorderFrom: 1,
         added: reordered.added.map(({ id, content }) => ({ id, content })), invalidatedIds: ['t1', 't2'],
       },
     },

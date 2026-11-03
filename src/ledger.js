@@ -64,19 +64,19 @@ export function dockTodos(state) {
   });
 }
 
-export function writeLedger(state, rawTasks, start, meta = { seq: 0, time: 0 }) {
+export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time: 0 }) {
   const tasks = normalizeTasks(rawTasks);
-  const reorder = start !== undefined;
+  const reorder = reorderFrom !== undefined;
   if (!reorder && tasks.length === 0) throw new Error('todo_write: append requires at least one task');
-  if (reorder && (!Number.isInteger(start) || start < 1 || start > state.currentIds.length)) {
-    throw new Error(`todo_write: start must be an existing 1-based task index (1-${state.currentIds.length})`);
+  if (reorder && (!Number.isInteger(reorderFrom) || reorderFrom < 1 || reorderFrom > state.currentIds.length)) {
+    throw new Error(`todo_write: reorderFrom must be an existing 1-based task index (1-${state.currentIds.length})`);
   }
 
   const next = clone(state);
   const invalidatedIds = [];
   const invalidated = [];
   if (reorder) {
-    for (let index = start - 1; index < state.currentIds.length; index += 1) {
+    for (let index = reorderFrom - 1; index < state.currentIds.length; index += 1) {
       const id = state.currentIds[index];
       const oldTask = state.nodes.find((node) => node.id === id);
       if (oldTask.status === 'completed') continue;
@@ -117,16 +117,16 @@ export function writeLedger(state, rawTasks, start, meta = { seq: 0, time: 0 }) 
     index: next.currentIds.indexOf(task.id) + 1,
     ...task,
   }));
-  return { state: next, mode: reorder ? 'reorder' : 'append', start, added: numberedAdded, invalidated };
+  return { state: next, mode: reorder ? 'reorder' : 'append', reorderFrom, added: numberedAdded, invalidated };
 }
 
 export function startLedger(state, index) {
-  const { id, task } = taskAt(state, index, 'todo_start');
-  if (task.status !== 'pending') throw new Error(`todo_start: task ${index} is ${task.status}, not pending`);
+  const { id, task } = taskAt(state, index, 'todo_write');
+  if (task.status !== 'pending') throw new Error(`todo_write: start task ${index} is ${task.status}, not pending`);
   for (let previous = 0; previous < index - 1; previous += 1) {
     const previousTask = state.nodes.find((node) => node.id === state.currentIds[previous]);
     if (previousTask.status !== 'completed') {
-      throw new Error(`todo_start: finish earlier task ${previous + 1} before starting task ${index}`);
+      throw new Error(`todo_write: finish earlier task ${previous + 1} before starting task ${index}`);
     }
   }
   const next = clone(state);
@@ -135,13 +135,62 @@ export function startLedger(state, index) {
 }
 
 export function finishLedger(state, index) {
-  const { id, task } = taskAt(state, index, 'todo_finish');
+  const { id, task } = taskAt(state, index, 'todo_write');
   if (task.status !== 'in_progress') {
-    throw new Error(`todo_finish: task ${index} is ${task.status}, not in_progress`);
+    throw new Error(`todo_write: finish task ${index} is ${task.status}, not in_progress`);
   }
   const next = clone(state);
   next.nodes.find((node) => node.id === id).status = 'completed';
   return { state: next, taskId: id };
+}
+
+export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
+  const { todos, reorderFrom, finish, start } = args;
+  let next = state;
+  let finished;
+  let write;
+  let started;
+  const operations = [];
+
+  if (finish !== undefined) {
+    const result = finishLedger(next, finish);
+    next = result.state;
+    finished = { index: finish, taskId: result.taskId, status: 'completed' };
+    operations.push({
+      state: next,
+      ledger: { operation: 'finish', taskId: result.taskId },
+    });
+  }
+
+  if (todos !== undefined || reorderFrom !== undefined) {
+    write = writeLedger(next, todos ?? [], reorderFrom, meta);
+    next = write.state;
+    operations.push({
+      state: next,
+      ledger: {
+        operation: 'write',
+        mode: write.mode,
+        ...(write.reorderFrom === undefined ? {} : { reorderFrom: write.reorderFrom }),
+        added: write.added.map(({ id, content }) => ({ id, content })),
+        invalidatedIds: write.invalidated.map((task) => task.id),
+      },
+    });
+  }
+
+  if (start !== undefined) {
+    const result = startLedger(next, start);
+    next = result.state;
+    started = { index: start, taskId: result.taskId, status: 'in_progress' };
+    operations.push({
+      state: next,
+      ledger: { operation: 'start', taskId: result.taskId },
+    });
+  }
+
+  if (operations.length === 0) {
+    throw new Error('todo_write: provide todos, reorderFrom, finish, or start');
+  }
+  return { state: next, operations, finished, write, started };
 }
 
 export function reportLedger(state, index, inLocalTask, rawLocalTask) {
