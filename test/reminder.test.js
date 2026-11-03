@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   inProgressTaskIndex,
   installReportReminder,
-  missingReportTools,
+  missingReport,
   reportReminder,
 } from '../src/reminder.js';
 
@@ -36,22 +36,24 @@ function flush() {
 }
 
 test('missing report detection ignores exempt tool calls and reported steps', () => {
-  assert.deepEqual(missingReportTools(message('bash', 'read')), ['bash', 'read']);
-  assert.deepEqual(missingReportTools(message('bash', 'bash')), ['bash']);
-  assert.equal(missingReportTools(message('todo_write', 'todo_read')), null);
-  assert.equal(missingReportTools(message('bash', 'todo_report')), null);
-  assert.equal(missingReportTools(message()), null);
+  assert.equal(missingReport(message('bash', 'read')), true);
+  assert.equal(missingReport(message('bash', 'bash')), true);
+  assert.equal(missingReport(message('todo_write', 'todo_read')), false);
+  assert.equal(missingReport(message('todo_report')), false);
+  assert.equal(missingReport(message('bash', 'todo_report')), false);
+  assert.equal(missingReport(message()), false);
 });
 
-test('reminder names the in-progress task and offending tools', () => {
+test('reminder names the in-progress task without listing tools', () => {
   assert.equal(inProgressTaskIndex(ledger('completed', 'in_progress', 'pending')), 2);
   assert.equal(inProgressTaskIndex(ledger('completed')), 0);
   assert.equal(inProgressTaskIndex(undefined), 0);
-  const notice = reportReminder(['bash', 'read'], 2);
+  const notice = reportReminder(2);
   assert.equal(notice.source.kind, 'todo-ledger-reminder');
   assert.equal(notice.source.form, 'notice');
-  assert.match(notice.content[0].text, /`bash`, `read`/);
+  assert.match(notice.content[0].text, /used tools without todo_report/);
   assert.match(notice.content[0].text, /Main task 2 is in progress/);
+  assert.doesNotMatch(notice.content[0].text, /bash|read/);
 });
 
 test('a violating step queues one notice after the append transaction', async () => {

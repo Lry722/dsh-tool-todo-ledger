@@ -3,12 +3,10 @@ import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm';
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const REMINDER_SOURCE = 'todo-ledger-reminder';
 
-export function missingReportTools(message) {
+export function missingReport(message) {
   const calls = message.content.filter((block) => block.type === 'tool-call');
-  const work = calls.filter((block) => !EXEMPT_TOOLS.has(block.name));
-  if (work.length === 0) return null;
-  if (calls.some((block) => block.name === 'todo_report')) return null;
-  return [...new Set(work.map((block) => block.name))];
+  if (calls.every((block) => EXEMPT_TOOLS.has(block.name))) return false;
+  return !calls.some((block) => block.name === 'todo_report');
 }
 
 export function inProgressTaskIndex(state) {
@@ -20,12 +18,11 @@ export function inProgressTaskIndex(state) {
   return index < 0 ? 0 : index + 1;
 }
 
-export function reportReminder(names, index) {
-  const tools = names.map((name) => `\`${name}\``).join(', ');
+export function reportReminder(index) {
   return createUserMessage({
     content: [{
       type: 'text',
-      text: `The previous step called ${tools} without todo_report. Main task ${index} is in progress, so this step must include exactly one todo_report call alongside its other tool calls. State inLocalTask explicitly and provide localTask when entering a local task.`,
+      text: `The previous step used tools without todo_report. Main task ${index} is in progress, so this step must include exactly one todo_report call alongside its other tool calls. State inLocalTask explicitly and provide localTask when entering a local task.`,
     }],
     source: {
       kind: REMINDER_SOURCE,
@@ -40,13 +37,13 @@ export function installReportReminder(ctx) {
     if (event.type !== 'assistant/message' || event.data?.interrupted) return;
     const message = event.data?.message;
     if (!message?.content) return;
-    const names = missingReportTools(message);
-    if (!names) return;
+    const missing = missingReport(message);
+    if (!missing) return;
     const index = inProgressTaskIndex(ctx.sessionProjections.stateOf(session, 'todoLedger'));
     if (index === 0) return;
     const agent = ctx.agents.get(session.id);
     if (!agent) return;
-    const notice = reportReminder(names, index);
+    const notice = reportReminder(index);
     // Session observers run inside the append transaction, so queue the notice
     // for the next admitted step instead of appending from this stack.
     queueMicrotask(() => {
