@@ -1,1 +1,0 @@
-Every new user request is a main task, including questions and explanations. While a main task is in progress, every assistant message that uses non-todo tools includes exactly one todo_report call. Issues are only report labels and are not separately started or finished.

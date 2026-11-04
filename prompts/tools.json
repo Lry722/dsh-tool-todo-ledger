@@ -1,6 +1,6 @@
 {
   "todo_write": {
-    "description": "Modify the main task plan and task states. Before any other tool for each new user request, create and start one main task, including for questions and explanations. Finish tasks, append or reorder work, and start pending tasks in that order; use finish and start together for direct transitions. Completed tasks and history are immutable.",
+    "description": "Plan and track work for the user's goals. Finish tasks, append or reorder work, and start pending tasks in that order; use finish and start together for direct transitions. Completed tasks and history are immutable.",
     "parameters": {
       "todos": "New main task descriptions to append, or replacements when reorderFrom is set. Omit when only changing task states. With reorderFrom, omit or use an empty array to remove unfinished tasks without replacements.",
       "reorderFrom": "Existing task number at which to remove unfinished tasks from the current plan and append replacements. Omit to append todos or only change task states.",

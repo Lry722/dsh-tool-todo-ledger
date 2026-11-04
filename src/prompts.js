@@ -4,7 +4,6 @@ function loadPrompt(name) {
   return readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 }
 
-export const REPORTING_SECTION = loadPrompt('reporting');
 export const REVIEW_POLICY = loadPrompt('review-policy');
 export const TOOL_PROMPTS = JSON.parse(readFileSync(new URL('../prompts/tools.json', import.meta.url), 'utf8'));
 const REVIEW_REQUEST = loadPrompt('review-request');

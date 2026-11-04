@@ -1,18 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REPORTING_SECTION, REVIEW_POLICY, reviewRequest, reviewResult } from '../src/prompts.js';
+import { REVIEW_POLICY, reviewRequest, reviewResult } from '../src/prompts.js';
 
 test('external prompts load and interpolate review data verbatim', () => {
-  assert.match(REPORTING_SECTION, /Every new user request is a main task/);
-  assert.match(REPORTING_SECTION, /including questions and explanations/);
-  assert.match(REPORTING_SECTION, /every assistant message/);
-  assert.match(REPORTING_SECTION, /non-todo tools/);
-  assert.match(REPORTING_SECTION, /exactly one todo_report call/);
-  assert.match(REPORTING_SECTION, /Issues are only report labels/);
-  assert.doesNotMatch(REPORTING_SECTION, /local task|localTask/i);
-  assert.doesNotMatch(REPORTING_SECTION, /text-only/);
   assert.match(REVIEW_POLICY, /Review the proposed todo_write operation/);
-  for (const prompt of [REPORTING_SECTION, REVIEW_POLICY, reviewRequest([], {})]) {
+  for (const prompt of [REVIEW_POLICY, reviewRequest([], {})]) {
     assert.doesNotMatch(prompt, /\b(?:ledger|stateless|step|top-level|1-based)\b/i);
   }
   assert.equal(

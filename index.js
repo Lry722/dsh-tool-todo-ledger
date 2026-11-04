@@ -2,11 +2,10 @@ import z from '@deepseek-ai/schemastery';
 import { z as zod } from 'zod';
 import { LEDGER_VERSION, emptyLedger, foldLedgerEvent, ledgerView } from './src/ledger.js';
 import { createLedgerTools } from './src/tools.js';
-import { REPORTING_SECTION } from './src/prompts.js';
 import { installReportReminder } from './src/reminder.js';
 
 export const name = 'tool-todo-ledger';
-export const inject = ['agents', 'llm', 'sessionProjections', 'systemPrompt', 'tools'];
+export const inject = ['agents', 'llm', 'sessionProjections', 'tools'];
 export const Config = z.object({ reviewEnabled: z.boolean().default(false).volatile() });
 
 const reportSchema = zod.object({
@@ -114,12 +113,6 @@ export function apply(ctx, config) {
     if (attached.has(agent)) return;
     const dispose = ctx.effect(() => agent.ctx.effect(() => {
       const registrations = createLedgerTools(ctx, config).map((tool) => agent.ctx.tools.register(tool));
-      registrations.push(agent.ctx.systemPrompt.section({
-        name: 'tool:todo-ledger-reporting',
-        order: 620,
-        interpolate: false,
-        text: REPORTING_SECTION,
-      }));
       return () => {
         for (const unregister of registrations.reverse()) unregister();
       };
