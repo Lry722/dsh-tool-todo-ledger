@@ -380,10 +380,6 @@ window.__ModuleLoader__.load({
       return turn === 0 ? t('earlyTasks') : t('turn', { turn });
     }
 
-    function turnPreview(turn) {
-      return turn.tasks.slice(0, 2).map((task) => task.content).join('\u3000');
-    }
-
     function IssueSummary({ issue }) {
       return h('div', { className: 'todo-ledger-sidebar__issue', 'data-active': issue.active || undefined },
         h('span', { title: issue.name }, issue.name),
@@ -469,7 +465,7 @@ window.__ModuleLoader__.load({
             'aria-label': t('turnSummary'),
             onChange: (event) => onSelect(Number(event.target.value)),
           }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
-            [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total }), ...(turn.tasks.length > 0 ? [turnPreview(turn)] : [])].join('\u3000')))),
+            [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total })].join('\u3000')))),
         ),
         h('div', { className: 'todo-ledger-sidebar__turn-meta' },
           h('div', { className: 'todo-ledger-sidebar__turn-stats' },
