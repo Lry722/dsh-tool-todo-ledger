@@ -7,6 +7,8 @@ window.__ModuleLoader__.load({
       StateDot,
       IconChecklistOutlineRegular,
       IconChevronDownOutlineRegular,
+      IconChevronLeftOutlineRegular,
+      IconChevronRightOutlineRegular,
       IconChevronUpOutlineRegular,
     } = require('@deepseek-ai/dsh-client-ui-primitives');
     const h = React.createElement;
@@ -95,40 +97,51 @@ window.__ModuleLoader__.load({
       .todo-ledger-dock__glyph{display:grid;flex:none;place-items:center;width:16px;height:16px}
       .todo-ledger-dock__content{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .todo-ledger-dock__entry{min-width:0}
-      .todo-ledger-dock__issue{display:flex;align-items:center;gap:6px;min-width:0;padding-left:26px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+      .todo-ledger-dock__issue{display:flex;align-items:center;gap:7px;min-width:0;padding-left:25px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
       .todo-ledger-dock__issue--nested{margin-top:4px}
-      .todo-ledger-dock__branch{flex:none;color:var(--dsw-alias-label-tertiary)}
+      .todo-ledger-dock__branch{box-sizing:border-box;flex:none;width:9px;height:9px;margin-left:2px;border-left:1px solid var(--dsw-alias-border-l3);border-bottom:1px solid var(--dsw-alias-border-l3);border-bottom-left-radius:4px;transform:translateY(-2px)}
       .todo-ledger-dock__issue-content{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .todo-ledger-dock__jump{width:100%;padding:0;border:0;background:transparent;font-family:inherit;text-align:left;cursor:pointer}
       .todo-ledger-dock__jump:hover .todo-ledger-dock__content{color:var(--dsw-alias-label-primary)}
       .todo-ledger-dock__jump:focus-visible,.todo-ledger-sidebar button:focus-visible,.todo-ledger-sidebar input:focus-visible,.todo-ledger-sidebar select:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
-      .todo-ledger-dock__jump:disabled,.todo-ledger-sidebar button:disabled{cursor:default;opacity:.45}
+      .todo-ledger-dock__jump:disabled,.todo-ledger-sidebar button:disabled{cursor:default;opacity:.4}
       .todo-ledger-dock__jump-error,.todo-ledger-sidebar__jump-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}
       .todo-ledger-sidebar{box-sizing:border-box;display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}
-      .todo-ledger-sidebar__tabs{display:flex;flex:none;gap:4px;padding:12px;border-bottom:.5px solid var(--dsw-alias-border-l2)}
-      .todo-ledger-sidebar__tab{flex:1;padding:4px 8px;border:0;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}
-      .todo-ledger-sidebar__tab[aria-selected=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-      .todo-ledger-sidebar__body{flex:1;min-height:0;overflow-y:auto;padding:12px}
-      .todo-ledger-sidebar__tasks{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none}
-      .todo-ledger-sidebar__task{min-width:0}
+      .todo-ledger-sidebar__tabs{display:inline-flex;align-self:flex-start;flex:none;gap:2px;margin:12px 12px 4px;padding:3px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-interactive-bg-hover)}
+      .todo-ledger-sidebar__tab{min-height:24px;padding:1px 10px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;cursor:pointer;transition:background-color .12s,color .12s}
+      .todo-ledger-sidebar__tab:hover{color:var(--dsw-alias-label-primary)}
+      .todo-ledger-sidebar__tab[aria-selected=true]{background:var(--dsw-specific-menu);color:var(--dsw-alias-label-primary);font-weight:500}
+      .todo-ledger-sidebar__body{flex:1;min-height:0;overflow-y:auto;padding:8px 12px 14px}
+      .todo-ledger-sidebar__tasks{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
+      .todo-ledger-sidebar__task{min-width:0;padding:6px 6px 6px 4px;border-radius:var(--dsw-radius-md)}
+      .todo-ledger-sidebar__task[data-status=in_progress]{background:var(--dsw-alias-interactive-bg-hover)}
       .todo-ledger-sidebar__task-row{display:flex;align-items:flex-start;gap:6px;min-width:0}
       .todo-ledger-sidebar__glyph{display:grid;flex:none;place-items:center;width:16px;height:20px}
-      .todo-ledger-sidebar__index{flex:none;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
-      .todo-ledger-sidebar__content{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
+      .todo-ledger-sidebar__index{flex:none;min-width:20px;padding-right:2px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;font-variant-numeric:tabular-nums;text-align:right}
+      .todo-ledger-sidebar__task-main{flex:1;min-width:0}
+      .todo-ledger-sidebar__content{display:block;min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);line-height:20px}
+      .todo-ledger-sidebar__task[data-status=in_progress] .todo-ledger-sidebar__content{color:var(--dsw-alias-label-primary);font-weight:500}
+      .todo-ledger-sidebar__task[data-status=completed] .todo-ledger-sidebar__content{color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-sidebar__task[data-status=void] .todo-ledger-sidebar__content{text-decoration:line-through;color:var(--dsw-alias-label-tertiary)}
-      .todo-ledger-sidebar__icon,.todo-ledger-sidebar__issue-toggle{display:inline-flex;flex:none;align-items:center;justify-content:center;gap:2px;min-height:24px;padding:0 4px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}
-      .todo-ledger-sidebar__icon:hover,.todo-ledger-sidebar__issue-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-      .todo-ledger-sidebar__issue-toggle{font-size:12px;white-space:nowrap}
-      .todo-ledger-sidebar__issues{margin:4px 0 2px 22px;padding-left:10px;border-left:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-      .todo-ledger-sidebar__issue-heading{margin:4px 0 2px;color:var(--dsw-alias-label-tertiary)}
-      .todo-ledger-sidebar__issue{display:flex;gap:6px;padding:2px 0;overflow-wrap:anywhere}
-      .todo-ledger-sidebar__turn-nav{display:flex;align-items:center;gap:4px;margin-bottom:8px}
-      .todo-ledger-sidebar__turn-input{box-sizing:border-box;flex:1;min-width:0;height:28px;padding:2px 6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;text-align:center}
-      .todo-ledger-sidebar__turn-select{box-sizing:border-box;width:100%;height:32px;margin-bottom:10px;padding:2px 6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit}
-      .todo-ledger-sidebar__turn-meta{margin-bottom:12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-      .todo-ledger-sidebar__turn-preview{margin-top:2px;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
-      .todo-ledger-sidebar__open{display:inline-block;margin-left:6px;color:var(--dsw-alias-state-business-primary)}
-      .todo-ledger-sidebar__empty{padding:28px 8px;color:var(--dsw-alias-label-tertiary);text-align:center}
+      .todo-ledger-sidebar__icon,.todo-ledger-sidebar__issue-toggle{display:inline-flex;flex:none;align-items:center;justify-content:center;gap:3px;width:24px;height:24px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;transition:background-color .12s,color .12s}
+      .todo-ledger-sidebar__icon{margin-top:-2px;font-size:15px;line-height:1}
+      .todo-ledger-sidebar__icon:hover:not(:disabled),.todo-ledger-sidebar__issue-toggle:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .todo-ledger-sidebar__issue-toggle{width:auto;min-width:24px;height:20px;margin-top:2px;padding:0 2px;font-size:12px;line-height:18px;white-space:nowrap}
+      .todo-ledger-sidebar__issues{margin:6px 0 2px 22px;padding:5px 0 0 10px;border-top:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+      .todo-ledger-sidebar__issue-heading{margin:2px 0 3px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;font-weight:500}
+      .todo-ledger-sidebar__issue{padding:2px 0;overflow-wrap:anywhere}
+      .todo-ledger-sidebar__issue[data-active=true]{color:var(--dsw-alias-label-primary);font-weight:500}
+      .todo-ledger-sidebar__turn-nav{display:grid;grid-template-columns:24px minmax(36px,52px) 24px minmax(0,1fr);align-items:center;gap:4px;width:100%;max-width:100%;margin-bottom:10px}
+      .todo-ledger-sidebar__turn-nav .todo-ledger-sidebar__icon{margin-top:0}
+      .todo-ledger-sidebar__turn-input,.todo-ledger-sidebar__turn-select{box-sizing:border-box;min-width:0;height:28px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}
+      .todo-ledger-sidebar__turn-input{width:100%;padding:2px 4px;text-align:center}
+      .todo-ledger-sidebar__turn-select{width:100%;padding:2px 4px;text-overflow:ellipsis}
+      .todo-ledger-sidebar__turn-input:hover,.todo-ledger-sidebar__turn-select:hover{border-color:var(--dsw-alias-border-l3)}
+      .todo-ledger-sidebar__turn-meta{margin:0 2px 10px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+      .todo-ledger-sidebar__turn-preview{margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere}
+      .todo-ledger-sidebar__open{display:inline-block;margin-left:6px;color:var(--dsw-alias-label-tertiary)}
+      .todo-ledger-sidebar__open::before{content:'·';margin-right:6px}
+      .todo-ledger-sidebar__empty{padding:32px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;text-align:center}
     `;
 
     function ReviewRow({ useReview, setReview, t }) {
@@ -189,7 +202,7 @@ window.__ModuleLoader__.load({
         role: 'note',
         'aria-label': `${t('currentIssue')}: ${text}`,
       },
-        h('span', { className: 'todo-ledger-dock__branch', 'aria-hidden': true }, '↳'),
+        h('span', { className: 'todo-ledger-dock__branch', 'aria-hidden': true }),
         h('span', { className: 'todo-ledger-dock__issue-content', title: text }, text),
       );
     }
@@ -357,11 +370,9 @@ window.__ModuleLoader__.load({
       return turn === 0 ? t('earlyTasks') : t('turn', { turn });
     }
 
-    function IssueSummary({ issue, t }) {
-      return h('div', { className: 'todo-ledger-sidebar__issue' },
-        h('span', { 'aria-hidden': true }, '↳'),
+    function IssueSummary({ issue }) {
+      return h('div', { className: 'todo-ledger-sidebar__issue', 'data-active': issue.active || undefined },
         h('span', { title: issue.name }, issue.name),
-        issue.active ? h('span', null, ` · ${t('currentIssue')}`) : null,
       );
     }
 
@@ -374,7 +385,19 @@ window.__ModuleLoader__.load({
           h('span', { className: 'todo-ledger-sidebar__glyph', role: 'img', 'aria-label': labels[item.status] },
             h(StateDot, { state: statusDotState[item.status] })),
           showIndex ? h('span', { className: 'todo-ledger-sidebar__index' }, `${item.index}.`) : null,
-          h('span', { className: 'todo-ledger-sidebar__content', title: item.content }, item.content),
+          h('div', { className: 'todo-ledger-sidebar__task-main' },
+            h('span', { className: 'todo-ledger-sidebar__content', title: item.content }, item.content),
+            item.issues.length > 0 ? h('button', {
+              type: 'button',
+              className: 'todo-ledger-sidebar__issue-toggle',
+              'aria-expanded': expanded,
+              'aria-label': t('issueCount', { count: item.issues.length }),
+              onClick: onToggle,
+            },
+              h(expanded ? IconChevronUpOutlineRegular : IconChevronDownOutlineRegular, { size: 14, 'aria-hidden': true }),
+              h('span', null, t('issueCount', { count: item.issues.length })),
+            ) : null,
+          ),
           item.startCallId ? h('button', {
             type: 'button',
             className: 'todo-ledger-sidebar__icon',
@@ -384,21 +407,12 @@ window.__ModuleLoader__.load({
             disabled: jumping !== null,
             onClick: () => { void onJump(item); },
           }, '↗') : null,
-          item.issues.length > 0 ? h('button', {
-            type: 'button',
-            className: 'todo-ledger-sidebar__issue-toggle',
-            'aria-expanded': expanded,
-            'aria-label': t('issueCount', { count: item.issues.length }),
-            onClick: onToggle,
-          },
-            h('span', null, t('issueCount', { count: item.issues.length })),
-            h(expanded ? IconChevronUpOutlineRegular : IconChevronDownOutlineRegular, { 'aria-hidden': true }),
-          ) : null,
         ),
         expanded && item.issues.length > 0 ? h('div', { className: 'todo-ledger-sidebar__issues' },
-          active.map((issue) => h(IssueSummary, { key: `active:${issue.name}`, issue, t })),
+          active.length > 0 ? h('div', { className: 'todo-ledger-sidebar__issue-heading' }, t('currentIssue')) : null,
+          active.map((issue) => h(IssueSummary, { key: `active:${issue.name}`, issue })),
           historical.length > 0 ? h('div', { className: 'todo-ledger-sidebar__issue-heading' }, t('historicalIssues', { count: historical.length })) : null,
-          historical.map((issue) => h(IssueSummary, { key: `history:${issue.name}`, issue, t })),
+          historical.map((issue) => h(IssueSummary, { key: `history:${issue.name}`, issue })),
         ) : null,
       );
     }
@@ -436,7 +450,8 @@ window.__ModuleLoader__.load({
       const newer = adjacentTurn(turns, selectedTurn, 1);
       return h('div', null,
         h('div', { className: 'todo-ledger-sidebar__turn-nav' },
-          h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('olderTurn'), 'aria-label': t('olderTurn'), disabled: older === undefined, onClick: () => onSelect(older) }, '‹'),
+          h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('olderTurn'), 'aria-label': t('olderTurn'), disabled: older === undefined, onClick: () => onSelect(older) },
+            h(IconChevronLeftOutlineRegular, { size: 14, 'aria-hidden': true })),
           h('input', {
             className: 'todo-ledger-sidebar__turn-input',
             type: 'number',
@@ -451,15 +466,16 @@ window.__ModuleLoader__.load({
               if (event.key === 'Escape') setDraft(String(selectedTurn));
             },
           }),
-          h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('newerTurn'), 'aria-label': t('newerTurn'), disabled: newer === undefined, onClick: () => onSelect(newer) }, '›'),
+          h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('newerTurn'), 'aria-label': t('newerTurn'), disabled: newer === undefined, onClick: () => onSelect(newer) },
+            h(IconChevronRightOutlineRegular, { size: 14, 'aria-hidden': true })),
+          h('select', {
+            className: 'todo-ledger-sidebar__turn-select',
+            value: selectedTurn,
+            'aria-label': t('turnSummary'),
+            onChange: (event) => onSelect(Number(event.target.value)),
+          }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
+            `${turnLabel(turn.turn, t)} · ${turn.total}${turn.preview ? ` · ${turn.preview}` : ''}`))),
         ),
-        h('select', {
-          className: 'todo-ledger-sidebar__turn-select',
-          value: selectedTurn,
-          'aria-label': t('turnSummary'),
-          onChange: (event) => onSelect(Number(event.target.value)),
-        }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
-          `${turnLabel(turn.turn, t)} · ${turn.total}${turn.preview ? ` · ${turn.preview}` : ''}`))),
         h('div', { className: 'todo-ledger-sidebar__turn-meta' },
           h('div', null,
             t('taskSummary', { total: selected.total, completed: selected.completed, voided: selected.voided }),
