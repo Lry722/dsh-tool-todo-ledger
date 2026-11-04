@@ -55,7 +55,7 @@ test('todo_write appends a replayable delta and volatile review config is read p
   assert.deepEqual(Object.keys(env.tools), ['todo_write', 'todo_read', 'todo_report']);
   const first = await env.tools.todo_write.execute({ todos: ['First'] }, env.exec);
   assert.equal(first.review, undefined);
-  assert.equal(first.added[0].index, 1);
+  assert.deepEqual(first.added, [{ index: 1, content: 'First' }]);
   assert.equal(env.appended[0].data.ledger.operation, 'write');
   assert.deepEqual(env.appended[0].data.todos, [{ content: 'First', status: 'pending' }]);
 
@@ -87,11 +87,11 @@ test('review warnings are returned while technical failures stay invisible', asy
 test('composite writes preserve separate start, report and finish operations', async () => {
   const env = harness();
   const created = await env.tools.todo_write.execute({ todos: ['Task'], start: 1 }, env.exec);
-  assert.deepEqual(created.started, { index: 1, taskId: 't1', status: 'in_progress' });
+  assert.deepEqual(created.started, { content: 'Task' });
   const reported = await env.tools.todo_report.execute({ index: 1, inIssue: true, issue: 'Local' }, env.exec);
   const maintained = await env.tools.todo_report.execute({ index: 1, inIssue: true }, env.exec);
   const finished = await env.tools.todo_write.execute({ finish: 1 }, env.exec);
-  assert.deepEqual(finished.finished, { index: 1, taskId: 't1', status: 'completed' });
+  assert.deepEqual(finished.finished, { content: 'Task' });
   assert.deepEqual(reported, {});
   assert.deepEqual(maintained, {});
   assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start', 'report', 'report', 'finish']);
@@ -113,8 +113,8 @@ test('finish and start share one call without triggering plan review', async () 
   const result = await env.tools.todo_write.execute({ finish: 1, start: 2 }, env.exec);
   assert.equal(env.reviewCalls(), 1);
   assert.deepEqual(result, {
-    finished: { index: 1, taskId: 't1', status: 'completed' },
-    started: { index: 2, taskId: 't2', status: 'in_progress' },
+    finished: { content: 'One' },
+    started: { content: 'Two' },
   });
   assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start', 'finish', 'start']);
   assert.deepEqual(env.appended[2].data.todos, [
@@ -137,7 +137,10 @@ test('reorder and start returns the final active plan', async () => {
     start: 2,
   }, env.exec);
   assert.equal(result.mode, 'reorder');
-  assert.deepEqual(result.invalidated.map((task) => task.content), ['Two', 'Three']);
+  assert.deepEqual(result.invalidated, [
+    { oldIndex: 2, content: 'Two', status: 'in_progress' },
+    { oldIndex: 3, content: 'Three', status: 'pending' },
+  ]);
   assert.deepEqual(result.plan, [
     { index: 1, content: 'One', status: 'completed' },
     { index: 2, content: 'Replacement', status: 'in_progress' },

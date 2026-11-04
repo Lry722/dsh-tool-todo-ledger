@@ -108,17 +108,21 @@ export function createLedgerTools(ctx, config) {
             ...(operation.ledger.operation === 'start' ? { callId: String(exec.callId) } : {}),
           });
         }
+        const withoutInternalId = ({ id, ...task }) => task;
+        const transitionResult = ({ taskId }) => ({
+          content: result.state.nodes.find((node) => node.id === taskId).content,
+        });
         return {
-          ...(result.finished ? { finished: result.finished } : {}),
+          ...(result.finished ? { finished: transitionResult(result.finished) } : {}),
           ...(result.write ? {
             mode: result.write.mode,
-            added: result.write.added,
+            added: result.write.added.map(withoutInternalId),
             ...(result.write.mode === 'reorder' ? {
-              invalidated: result.write.invalidated,
+              invalidated: result.write.invalidated.map(withoutInternalId),
               plan: numberedPlan(result.state),
             } : {}),
           } : {}),
-          ...(result.started ? { started: result.started } : {}),
+          ...(result.started ? { started: transitionResult(result.started) } : {}),
           ...(review ? { review } : {}),
         };
       },
