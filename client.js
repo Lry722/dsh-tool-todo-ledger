@@ -514,7 +514,7 @@ window.__ModuleLoader__.load({
       const [view, setView] = React.useState(saved?.view ?? 'current');
       const [selectedTurn, setSelectedTurn] = React.useState(saved?.selectedTurn);
       const projection = useProjection('todoLedger');
-      const turns = projection?.turns ?? [];
+      const turns = (projection?.turns ?? []).filter((turn) => turn.turn !== 0 || turn.total > 0);
       const currentTurn = projection?.currentTurn ?? 0;
       const { jumping, jumpFailed, jump } = useTaskJump((item) => openTodoStart(sessionId, item));
       const validSelection = turns.some((turn) => turn.turn === selectedTurn);
