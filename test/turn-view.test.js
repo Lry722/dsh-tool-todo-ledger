@@ -125,6 +125,11 @@ test('turn history carries unfinished work and freezes each turn-end status', ()
   assert.deepEqual(dockTodos(state).map((task) => task.content), ['D']);
 });
 
+test('history preview separates task content with an ideographic space', () => {
+  const state = writeEvent(emptyLedger(), 1, ['Review implementation, then verify', 'Run checks']);
+  assert.equal(ledgerView(state).turns[0].preview, 'Review implementation, then verify\u3000Run checks');
+});
+
 test('empty turns remain selectable and Dock hides an empty new turn', () => {
   let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
   state = writeEvent(state, 2, ['Done']);

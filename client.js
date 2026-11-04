@@ -44,7 +44,9 @@ window.__ModuleLoader__.load({
       newerTurn: 'Go to the later turn',
       openTurn: 'Current turn',
       emptyTurn: 'This turn has no task records.',
-      taskSummary: '{total} tasks · {completed} completed · {voided} discarded',
+      taskTotal: '{total} tasks',
+      taskCompleted: '{completed} completed',
+      taskVoided: '{voided} discarded',
       jumpToStart: 'Jump to the step that started this task',
       jumpFailed: 'Could not locate the step that started this task',
     };
@@ -76,7 +78,9 @@ window.__ModuleLoader__.load({
       newerTurn: '转到较晚一轮',
       openTurn: '当前轮',
       emptyTurn: '这一轮没有任务记录。',
-      taskSummary: '{total} 项 · {completed} 已完成 · {voided} 已作废',
+      taskTotal: '{total} 项',
+      taskCompleted: '{completed} 已完成',
+      taskVoided: '{voided} 已作废',
       jumpToStart: '跳转到开始此任务的步骤',
       jumpFailed: '无法定位开始此任务的步骤',
     };
@@ -91,7 +95,8 @@ window.__ModuleLoader__.load({
       .todo-ledger-dock__header{display:flex;align-items:center;gap:10px;width:100%;padding:0;border:none;background:transparent;text-align:left;cursor:pointer}
       .todo-ledger-dock__lead,.todo-ledger-dock__chevron{display:grid;flex:none;place-items:center;color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-dock__title{flex:none;font-size:13px;line-height:24px;font-weight:500;color:var(--dsw-alias-label-primary)}
-      .todo-ledger-dock__progress{flex:1 1 auto;min-width:0;overflow:hidden;font-size:13px;line-height:20px;font-weight:400;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap}
+      .todo-ledger-dock__progress{display:flex;flex:1 1 auto;gap:6px;min-width:0;overflow:hidden;font-size:13px;line-height:20px;font-weight:400;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+      .todo-ledger-dock__progress>span{flex:none}
       .todo-ledger-dock__list{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;max-height:180px;overflow-y:auto}
       .todo-ledger-dock__item{display:flex;align-items:center;gap:10px;min-width:0;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary)}
       .todo-ledger-dock__glyph{display:grid;flex:none;place-items:center;width:16px;height:16px}
@@ -145,9 +150,8 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__turn-input{box-sizing:border-box;width:36px;min-width:0;height:22px;padding:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:20px;text-align:center;appearance:textfield;-moz-appearance:textfield}
       .todo-ledger-sidebar__turn-input::-webkit-outer-spin-button,.todo-ledger-sidebar__turn-input::-webkit-inner-spin-button{margin:0;-webkit-appearance:none}
       .todo-ledger-sidebar__turn-meta{margin:4px 0 10px;padding:0 0 10px;border-bottom:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-      .todo-ledger-sidebar__turn-preview{margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
-      .todo-ledger-sidebar__open{display:inline-block;margin-left:6px;color:var(--dsw-alias-label-tertiary)}
-      .todo-ledger-sidebar__open::before{content:'·';margin-right:6px}
+      .todo-ledger-sidebar__turn-stats{display:flex;flex-wrap:wrap;gap:2px 10px}
+      .todo-ledger-sidebar__open{display:inline-block;color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-sidebar__empty{padding:32px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;text-align:center}
     `;
 
@@ -192,7 +196,7 @@ window.__ModuleLoader__.load({
       return [
         ...(done > 0 ? [t('done', { done })] : []),
         ...(pending > 0 ? [t('pending', { pending })] : []),
-      ].join(' · ');
+      ];
     }
 
     const statusDotState = { completed: 'done', in_progress: 'ongoing', pending: 'idle', void: 'idle' };
@@ -323,7 +327,7 @@ window.__ModuleLoader__.load({
           },
             h('span', { className: 'todo-ledger-dock__lead', 'aria-hidden': true }, h(IconChecklistOutlineRegular)),
             h('span', { className: 'todo-ledger-dock__title' }, t('todoTitle')),
-            h('span', { className: 'todo-ledger-dock__progress' }, progressLabel(todos, t)),
+            h('span', { className: 'todo-ledger-dock__progress' }, progressLabel(todos, t).map((label) => h('span', { key: label }, label))),
             h('span', { className: 'todo-ledger-dock__chevron', 'aria-hidden': true },
               collapsed ? h(IconChevronUpOutlineRegular) : h(IconChevronDownOutlineRegular)),
           ),
@@ -391,7 +395,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'todo-ledger-sidebar__task-row' },
           h('span', { className: 'todo-ledger-sidebar__glyph', role: 'img', 'aria-label': labels[item.status] },
             h(StateDot, { state: statusDotState[item.status] })),
-          showIndex ? h('span', { className: 'todo-ledger-sidebar__index' }, `${item.index}.`) : null,
+          showIndex ? h('span', { className: 'todo-ledger-sidebar__index' }, item.index) : null,
           h('div', { className: 'todo-ledger-sidebar__task-main' },
             h('span', { className: 'todo-ledger-sidebar__content', title: item.content }, item.content),
             item.issues.length > 0 ? h('button', {
@@ -463,7 +467,7 @@ window.__ModuleLoader__.load({
             'aria-label': t('turnSummary'),
             onChange: (event) => onSelect(Number(event.target.value)),
           }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
-            `${turnLabel(turn.turn, t)} · ${turn.total}${turn.preview ? ` · ${turn.preview}` : ''}`))),
+            [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total }), ...(turn.preview ? [turn.preview] : [])].join('\u3000')))),
           h('div', { className: 'todo-ledger-sidebar__turn-stepper' },
             h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('olderTurn'), 'aria-label': t('olderTurn'), disabled: older === undefined, onClick: () => onSelect(older) },
               h(IconChevronLeftOutlineRegular, { size: 14, 'aria-hidden': true })),
@@ -486,11 +490,11 @@ window.__ModuleLoader__.load({
           ),
         ),
         h('div', { className: 'todo-ledger-sidebar__turn-meta' },
-          h('div', null,
-            t('taskSummary', { total: selected.total, completed: selected.completed, voided: selected.voided }),
+          h('div', { className: 'todo-ledger-sidebar__turn-stats' },
+            h('span', null, t('taskCompleted', { completed: selected.completed })),
+            h('span', null, t('taskVoided', { voided: selected.voided })),
             selected.turn === currentTurn && selected.open ? h('span', { className: 'todo-ledger-sidebar__open' }, t('openTurn')) : null,
           ),
-          selected.preview ? h('div', { className: 'todo-ledger-sidebar__turn-preview' }, selected.preview) : null,
         ),
         selected.tasks.length === 0
           ? h('div', { className: 'todo-ledger-sidebar__empty' }, t('emptyTurn'))

@@ -476,7 +476,7 @@ function historyTurnView(state, turn) {
     total: tasks.length,
     completed: tasks.filter((task) => task.status === 'completed').length,
     voided: tasks.filter((task) => task.status === 'void').length,
-    preview: tasks.slice(0, 2).map((task) => task.content).join(' · '),
+    preview: tasks.slice(0, 2).map((task) => task.content).join('\u3000'),
     tasks,
   };
 }
