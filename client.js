@@ -137,7 +137,6 @@ window.__ModuleLoader__.load({
       @media(hover:none){.todo-ledger-sidebar__task .todo-ledger-sidebar__task-jump{opacity:1;pointer-events:auto}.todo-ledger-sidebar__task .todo-ledger-sidebar__task-jump:disabled{opacity:.4}}
       .todo-ledger-sidebar__issue-toggle{width:auto;min-width:24px;height:20px;margin-top:2px;padding:0 2px;font-size:12px;line-height:20px;white-space:nowrap}
       .todo-ledger-sidebar__issues{margin:6px 0 2px;padding:0;border-top:.5px solid var(--dsw-alias-border-l2);border-bottom:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px}
-      .todo-ledger-sidebar__issue-heading{margin:0;padding:5px 8px;border-bottom:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;font-weight:500}
       .todo-ledger-sidebar__issue{padding:5px 8px;overflow-wrap:anywhere;line-height:20px}
       .todo-ledger-sidebar__issue+.todo-ledger-sidebar__issue{border-top:.5px solid var(--dsw-alias-border-l2)}
       .todo-ledger-sidebar__issue[data-active=true]{color:var(--dsw-alias-label-primary);font-weight:500}
@@ -412,7 +411,6 @@ window.__ModuleLoader__.load({
               h('span', null, t('issueCount', { count: item.issues.length })),
             ) : null,
             expanded && item.issues.length > 0 ? h('div', { className: 'todo-ledger-sidebar__issues' },
-              active.length > 0 ? h('div', { className: 'todo-ledger-sidebar__issue-heading' }, t('currentIssue')) : null,
               active.map((issue) => h(IssueSummary, { key: `active:${issue.name}`, issue })),
               historical.map((issue) => h(IssueSummary, { key: `history:${issue.name}`, issue })),
             ) : null,
