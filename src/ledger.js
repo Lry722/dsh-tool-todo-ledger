@@ -9,11 +9,56 @@ export function emptyLedger() {
     lastReportTaskId: null,
     lastToolCallId: null,
     nextTaskNumber: 1,
+    currentTurn: 0,
+    turns: [{ turn: 0, startSeq: 0, startTime: 0, taskIds: [] }],
   };
 }
 
 function clone(value) {
   return structuredClone(value);
+}
+
+function openTurn(state) {
+  return state.turns.find((entry) => entry.turn === state.currentTurn);
+}
+
+function rememberInTurn(state, taskId) {
+  const turn = openTurn(state);
+  if (turn && !turn.taskIds.includes(taskId)) turn.taskIds.push(taskId);
+}
+
+function closeTurn(state, turn, seq, time) {
+  if (!turn || turn.endStatuses) return;
+  turn.endSeq = seq;
+  turn.endTime = time;
+  turn.endStatuses = {};
+  for (const id of turn.taskIds) {
+    const task = state.nodes.find((node) => node.id === id);
+    if (task) turn.endStatuses[id] = task.status;
+  }
+}
+
+function openNextTurn(state, event) {
+  const number = event.data?.turn;
+  if (!Number.isInteger(number) || number <= state.currentTurn) return state;
+  const next = clone(state);
+  closeTurn(next, openTurn(next), event.seq, event.time);
+  const taskIds = next.currentIds.filter((id) => {
+    const task = next.nodes.find((node) => node.id === id);
+    return task && (task.status === 'pending' || task.status === 'in_progress');
+  });
+  next.currentTurn = number;
+  next.turns.push({ turn: number, startSeq: event.seq, startTime: event.time, taskIds });
+  return next;
+}
+
+function closeCurrentTurn(state, event) {
+  if (event.data?.turn !== state.currentTurn) return state;
+  const turn = openTurn(state);
+  if (!turn || turn.endStatuses) return state;
+  const next = clone(state);
+  closeTurn(next, openTurn(next), event.seq, event.time);
+  return next;
 }
 
 // Old reports used localTask; normalize them when replaying existing sessions.
@@ -56,18 +101,28 @@ export function legacyTodos(state) {
   });
 }
 
+function activeIssue(state, taskId) {
+  if (state.lastReportTaskId !== taskId) return undefined;
+  const task = state.nodes.find((node) => node.id === taskId);
+  if (task?.status !== 'in_progress') return undefined;
+  const latest = task.reports.at(-1);
+  if (!latest?.inIssue || typeof latest.issue !== 'string') return undefined;
+  return { name: latest.issue, seq: latest.seq };
+}
+
 export function dockTodos(state) {
-  return state.currentIds.map((id) => {
+  const turn = openTurn(state);
+  const current = new Set(state.currentIds);
+  const ids = turn ? turn.taskIds : state.currentIds;
+  return ids.filter((id) => current.has(id)).map((id) => {
     const task = state.nodes.find((node) => node.id === id);
     const result = { content: task.content, status: task.status };
     if (typeof task.startCallId === 'string' && typeof task.startSeq === 'number') {
       result.startCallId = task.startCallId;
       result.startSeq = task.startSeq;
     }
-    if (task.status === 'in_progress' && state.lastReportTaskId === id) {
-      const latest = task.reports.at(-1);
-      if (latest?.inIssue && latest.issue) result.issue = latest.issue;
-    }
+    const issue = activeIssue(state, id);
+    if (issue) result.issue = issue.name;
     return result;
   });
 }
@@ -117,6 +172,7 @@ export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time:
       createdTime: meta.time,
     });
     next.currentIds.push(id);
+    rememberInTurn(next, id);
     added.push({ id, content });
   }
   if (reorder) next.lastReportTaskId = null;
@@ -281,11 +337,14 @@ function foldLegacySnapshot(state, event) {
     return node;
   });
   next.currentIds = next.nodes.map((node) => node.id);
+  for (const id of next.currentIds) rememberInTurn(next, id);
   next.lastReportTaskId = null;
   return next;
 }
 
 export function foldLedgerEvent(state, event) {
+  if (event.type === 'turn/start') return openNextTurn(state, event);
+  if (event.type === 'turn/end') return closeCurrentTurn(state, event);
   if (event.type === 'tool/call' && typeof event.data?.callId === 'string') {
     const next = clone(state);
     next.lastToolCallId = event.data.callId;
@@ -316,6 +375,7 @@ export function foldLedgerEvent(state, event) {
         createdTime: event.time,
       });
       next.currentIds.push(task.id);
+      rememberInTurn(next, task.id);
       const numericId = /^t(\d+)$/.exec(task.id);
       if (numericId) next.nextTaskNumber = Math.max(next.nextTaskNumber, Number(numericId[1]) + 1);
     }
@@ -347,4 +407,99 @@ export function foldLedgerEvent(state, event) {
     return next;
   }
   return state;
+}
+
+function issueSummaries(state, task, range) {
+  const active = activeIssue(state, task.id);
+  const summaries = new Map();
+  let continued;
+  for (const report of task.reports) {
+    if (!report.inIssue) {
+      continued = undefined;
+      continue;
+    }
+    const name = report.issue ?? continued;
+    if (typeof name !== 'string' || name.length === 0) {
+      continued = undefined;
+      continue;
+    }
+    continued = name;
+    if (typeof report.seq !== 'number') continue;
+    if (range && (report.seq < range.startSeq || (range.endSeq !== undefined && report.seq >= range.endSeq))) continue;
+    let summary = summaries.get(name);
+    if (!summary) {
+      summary = { name, firstSeq: report.seq, lastSeq: report.seq, active: false };
+      summaries.set(name, summary);
+    }
+    summary.lastSeq = report.seq;
+    if (active?.name === name && active.seq === report.seq) summary.active = true;
+  }
+  return [...summaries.values()].sort((left, right) => left.firstSeq - right.firstSeq);
+}
+
+function navigationFields(task) {
+  if (typeof task.startCallId !== 'string' || typeof task.startSeq !== 'number') return {};
+  return { startCallId: task.startCallId, startSeq: task.startSeq };
+}
+
+function currentPlanView(state) {
+  return state.currentIds.map((id, index) => {
+    const task = state.nodes.find((node) => node.id === id);
+    return {
+      id,
+      index: index + 1,
+      content: task.content,
+      status: task.status,
+      ...navigationFields(task),
+      issues: issueSummaries(state, task),
+    };
+  });
+}
+
+function historyTurnView(state, turn) {
+  const tasks = turn.taskIds.map((id) => {
+    const task = state.nodes.find((node) => node.id === id);
+    if (!task) return undefined;
+    return {
+      id,
+      content: task.content,
+      status: turn.endStatuses?.[id] ?? task.status,
+      ...navigationFields(task),
+      issues: issueSummaries(state, task, turn),
+    };
+  }).filter(Boolean);
+  return {
+    turn: turn.turn,
+    startSeq: turn.startSeq,
+    ...(turn.endSeq === undefined ? {} : { endSeq: turn.endSeq }),
+    open: turn.endStatuses === undefined,
+    total: tasks.length,
+    completed: tasks.filter((task) => task.status === 'completed').length,
+    voided: tasks.filter((task) => task.status === 'void').length,
+    preview: tasks.slice(0, 2).map((task) => task.content).join(' · '),
+    tasks,
+  };
+}
+
+export function ledgerView(state) {
+  return {
+    currentTurn: state.currentTurn,
+    dock: dockTodos(state),
+    current: currentPlanView(state),
+    turns: state.turns.map((turn) => historyTurnView(state, turn)),
+  };
+}
+
+export function defaultHistoryTurn(turns) {
+  const nonEmpty = turns.filter((turn) => turn.total > 0);
+  const archived = nonEmpty.filter((turn) => !turn.open);
+  const candidates = archived.length > 0 ? archived : nonEmpty;
+  return (candidates.at(-1) ?? turns.at(-1))?.turn;
+}
+
+export function adjacentTurn(turns, selectedTurn, offset) {
+  const ordered = [...turns].sort((left, right) => left.turn - right.turn);
+  const index = ordered.findIndex((turn) => turn.turn === selectedTurn);
+  if (index < 0 || !Number.isInteger(offset)) return undefined;
+  return ordered[index + offset]?.turn;
 }

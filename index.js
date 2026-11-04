@@ -1,6 +1,6 @@
 import z from '@deepseek-ai/schemastery';
 import { z as zod } from 'zod';
-import { LEDGER_VERSION, dockTodos, emptyLedger, foldLedgerEvent } from './src/ledger.js';
+import { LEDGER_VERSION, emptyLedger, foldLedgerEvent, ledgerView } from './src/ledger.js';
 import { createLedgerTools } from './src/tools.js';
 import { REPORTING_SECTION } from './src/prompts.js';
 import { installReportReminder } from './src/reminder.js';
@@ -17,13 +17,52 @@ const reportSchema = zod.object({
   time: zod.number().optional(),
 });
 
-const todoViewSchema = zod.array(zod.object({
+const navigationSchema = {
+  startCallId: zod.string().optional(),
+  startSeq: zod.number().optional(),
+};
+
+const issueViewSchema = zod.object({
+  name: zod.string(),
+  firstSeq: zod.number(),
+  lastSeq: zod.number(),
+  active: zod.boolean(),
+});
+
+const dockViewSchema = zod.array(zod.object({
   content: zod.string(),
   status: zod.enum(['pending', 'in_progress', 'completed']),
   issue: zod.string().optional(),
-  startCallId: zod.string().optional(),
-  startSeq: zod.number().optional(),
+  ...navigationSchema,
 }));
+
+const historyTaskSchema = zod.object({
+  id: zod.string(),
+  content: zod.string(),
+  status: zod.enum(['pending', 'in_progress', 'completed', 'void']),
+  ...navigationSchema,
+  issues: zod.array(issueViewSchema),
+});
+
+const todoViewSchema = zod.object({
+  currentTurn: zod.number().int().nonnegative(),
+  dock: dockViewSchema,
+  current: zod.array(historyTaskSchema.extend({
+    index: zod.number().int().positive(),
+    status: zod.enum(['pending', 'in_progress', 'completed']),
+  })),
+  turns: zod.array(zod.object({
+    turn: zod.number().int().nonnegative(),
+    startSeq: zod.number(),
+    endSeq: zod.number().optional(),
+    open: zod.boolean(),
+    total: zod.number().int().nonnegative(),
+    completed: zod.number().int().nonnegative(),
+    voided: zod.number().int().nonnegative(),
+    preview: zod.string(),
+    tasks: zod.array(historyTaskSchema),
+  })),
+});
 
 const ledgerStateSchema = zod.object({
   version: zod.literal(LEDGER_VERSION),
@@ -43,6 +82,16 @@ const ledgerStateSchema = zod.object({
   lastReportTaskId: zod.string().nullable(),
   lastToolCallId: zod.string().nullable(),
   nextTaskNumber: zod.number().int().positive(),
+  currentTurn: zod.number().int().nonnegative(),
+  turns: zod.array(zod.object({
+    turn: zod.number().int().nonnegative(),
+    startSeq: zod.number(),
+    startTime: zod.number(),
+    taskIds: zod.array(zod.string()),
+    endSeq: zod.number().optional(),
+    endTime: zod.number().optional(),
+    endStatuses: zod.record(zod.string(), zod.enum(['pending', 'in_progress', 'completed', 'void'])).optional(),
+  })),
 });
 
 export function apply(ctx, config) {
@@ -51,8 +100,8 @@ export function apply(ctx, config) {
     stateSchema: ledgerStateSchema,
     init: emptyLedger,
     apply: foldLedgerEvent,
-    wire: { viewSchema: todoViewSchema, view: dockTodos },
-    stateVersion: 4,
+    wire: { viewSchema: todoViewSchema, view: ledgerView },
+    stateVersion: 5,
   });
   installReportReminder(ctx);
 

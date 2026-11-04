@@ -31,9 +31,21 @@
 
 ### 当前规划与历史记录
 
-**当前规划**是历次追加与重排后生效的任务顺序，用于解释后续状态流转和上报的序号。
+**当前规划**是历次追加与重排后生效的 `currentIds` 顺序，用于解释后续状态流转和上报的全局序号。它只包含有效任务，包含所有已完成、进行中和待处理节点，不包含作废节点。
 
 **历史记录**保存历次追加、完成、重排、作废、启动和上报形成的过程信息。重排当前规划时，历史记录保持不变。一次组合 `todo_write` 调用可以产生多条有序操作，工具调用合并不会压缩掉这些历史。
+
+### 逐 turn 工作集
+
+历史 UI 按 turn 工作集组织，而不是按任务最新状态或创建 turn 分组：
+
+- `turn/start` 时，接续当时 `currentIds` 中所有 `pending` / `in_progress` 任务；已完成的旧任务不重复带入。
+- turn 内新建任务加入本轮工作集；重排作废的任务保留在工作集中，以 `void` 展示。
+- 同一任务可出现在多个 turn 中，每个 turn 都保存自己的成员列表。
+- `turn/end` 为工作集中的每个任务保存轮末状态。后续启动、完成或作废不会改写已归档 turn；当前开放 turn 则读取实时状态。
+- 第一个 `turn/start` 之前的数据归入 `turn: 0`。没有 turn 事件的旧会话也将 `turn: 0` 视为开放工作集，因此保持原有行为。空 turn 同样保留并可选择。
+
+issue 展示按任务与 issue 名称聚合同名上报，只区分“当前 issue”和“历史 issue”。`inIssue: false`、切换 issue 或完成父任务只会使 issue 不再处于当前状态，不会被解释为 issue 已完成。当前规划聚合有效任务的全部 issue；历史 turn 只聚合上报序号位于该 turn 边界内的 issue。Client wire view 只包含聚合摘要，不发送全部原始 reports；`todo_read({full: true})` 的完整导出保持不变。
 
 ### 序号的有效范围
 
@@ -124,14 +136,19 @@ turn 的最终回复不需要调用 `todo_report`。
 - `todos`：保留每个操作后的当前有效规划兼容快照，旧版读取方仍可读取。
 - `ledger`：保存增量操作，包括追加、重排、启动、完成和上报。每个任务节点都带内部稳定 ID，用于历史回放；重排保留旧节点及其中记录的上报内容。
 - 一次组合 `todo_write` 调用按实际执行顺序追加多条 `todo/write` 事件，各操作共享工具调用上下文；启动操作记录所属 `todo_write` 的 call ID，供 dock 导航使用。
-- `todoLedger`：Host projection，从事件日志重建状态，并以该日志为唯一事实源。旧版 `localTask` / `inLocalTask` 上报在回放时转换为 `issue` / `inIssue`，已有会话可以直接重建状态。
+- `todoLedger`：Host projection，从事件日志重建状态，并以该日志为唯一事实源。除任务节点外，还保存 `currentTurn`、逐 turn 工作集及轮末状态快照；projection `stateVersion` 升级会触发旧缓存重建，不改变 `todo/write` 事件格式或 `LEDGER_VERSION`。旧版 `localTask` / `inLocalTask` 上报在回放时转换为 `issue` / `inIssue`。
 - 安装前的官方全量 `todo/write` 事件可作为旧版快照回放。
 
-## 任务 dock
+## 任务 dock 与右侧边栏
 
-任务 dock 读取 `todoLedger` 的轻量 wire view。任务全部完成或开始新 turn 后，dock 仍会保留，仅当当前规划为空时隐藏。带启动定位信息的任务可点击，必要时加载历史并跳转到对应的 `todo_write` 工具卡片。
+任务 dock 只读取本轮工作集中的有效任务，展示完成/待办摘要和当前 issue，不显示历史数量、历史入口或历史 issue。新 turn 没有本轮任务且没有当前 issue 时隐藏。带启动定位信息的任务可点击，必要时加载历史并跳转到对应的 `todo_write` 工具卡片。
 
-当前 issue 以 `↳` 分支显示。dock 折叠时，当前 issue 位于进度下方；dock 展开时，当前 issue 归属到当前顶层任务。
+当前 issue 以 `↳` 分支显示。dock 折叠时，当前 issue 位于进度下方；dock 展开时，当前 issue 归属到当前顶层任务。由于状态机只允许一个进行中任务，摘要不再重复显示固定的“1 进行中”。
+
+右侧“任务”标签页通过 `sidebarRightTabs` 和 `sidebar.right.pane.tab` 注册，提供两个视图：
+
+- **当前规划**：按全局序号展示完整 `currentIds` 和每个任务的 issue 摘要。进行中任务默认展开当前 issue；其他任务可独立展开历史 issue。展开与启动跳转使用不同控件。
+- **历史记录**：顶部提供编号输入、全量 turn 摘要下拉和较早/较晚按钮，可精确跳转任意空或非空 turn。默认选择最近的非空归档 turn；用户已经选择历史 turn 后，新 turn 不会打断浏览。切换内部视图保留选择，会话切换使用各会话自己的 UI 状态。下方一次只渲染所选 turn 的完整工作集、轮末状态及该 turn 时间范围内的 issue，不使用分批展开入口。
 
 ## 典型重排示例
 
@@ -209,5 +226,6 @@ turn 的最终回复不需要调用 `todo_report`。
 - `src/tools.js`：Cordis 工具与历史导出。
 - `src/review.js`：独立模型审查。
 - `src/reminder.js`：漏报检测与提示注入。
-- `index.js`：Host 生命周期。
+- `index.js`：Host 生命周期、projection 状态与 wire schema。
+- `client.js`：精简 Dock、右侧任务标签页、turn 导航和 issue 展开组件。
 - `prompts/`：模型提示词、审查请求模板以及工具与参数说明，由 `src/prompts.js` 加载。

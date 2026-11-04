@@ -12,19 +12,37 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const namespace = 'todo-ledger';
     const locale = 'todoLedger';
+    const sidebarId = 'dsh-tool-todo-ledger';
 
     const en = {
       title: 'Review todo plans with AGENTS.md',
       description: 'Before each todo_write plan change, an independent model reviews the plan against the active project instructions. Violations are reported without blocking the change.',
       failed: 'Could not save preference',
       todoTitle: 'To-dos',
+      sidebarTitle: 'Tasks',
+      sidebarDescription: 'Inspect the current plan, turn history, and issue summaries.',
       done: '{done} completed',
-      active: '{active} in progress',
       pending: '{pending} pending',
       statusCompleted: 'Completed',
       statusActive: 'In progress',
       statusPending: 'Pending',
+      statusVoid: 'Discarded',
       currentIssue: 'Current issue',
+      historicalIssues: 'Earlier issues ({count})',
+      issueCount: '{count} issues',
+      currentPlan: 'Current plan',
+      history: 'History',
+      currentPlanEmpty: 'The current plan is empty.',
+      historyEmpty: 'No turn history is available.',
+      turn: 'Turn {turn}',
+      earlyTasks: 'Earlier tasks',
+      turnNumber: 'Turn number',
+      turnSummary: 'Turn summary',
+      olderTurn: 'Go to the earlier turn',
+      newerTurn: 'Go to the later turn',
+      openTurn: 'Current turn',
+      emptyTurn: 'This turn has no task records.',
+      taskSummary: '{total} tasks · {completed} completed · {voided} discarded',
       jumpToStart: 'Jump to the step that started this task',
       jumpFailed: 'Could not locate the step that started this task',
     };
@@ -33,13 +51,30 @@ window.__ModuleLoader__.load({
       description: '每次 todo_write 修改规划前，由独立模型依据当前生效的项目指令进行审查。发现违例会明确提示，但不会阻塞修改。',
       failed: '无法保存设置',
       todoTitle: '任务',
+      sidebarTitle: '任务',
+      sidebarDescription: '查看当前规划、turn 历史和 issue 摘要。',
       done: '{done} 已完成',
-      active: '{active} 进行中',
       pending: '{pending} 待处理',
       statusCompleted: '已完成',
       statusActive: '进行中',
       statusPending: '待处理',
+      statusVoid: '已作废',
       currentIssue: '当前 issue',
+      historicalIssues: '历史 issue（{count}）',
+      issueCount: '{count} 个 issue',
+      currentPlan: '当前规划',
+      history: '历史记录',
+      currentPlanEmpty: '当前规划为空。',
+      historyEmpty: '暂无 turn 历史。',
+      turn: '第 {turn} 轮',
+      earlyTasks: '早期任务',
+      turnNumber: 'turn 编号',
+      turnSummary: 'turn 摘要',
+      olderTurn: '转到较早一轮',
+      newerTurn: '转到较晚一轮',
+      openTurn: '当前轮',
+      emptyTurn: '这一轮没有任务记录。',
+      taskSummary: '{total} 项 · {completed} 已完成 · {voided} 已作废',
       jumpToStart: '跳转到开始此任务的步骤',
       jumpFailed: '无法定位开始此任务的步骤',
     };
@@ -66,9 +101,34 @@ window.__ModuleLoader__.load({
       .todo-ledger-dock__issue-content{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .todo-ledger-dock__jump{width:100%;padding:0;border:0;background:transparent;font-family:inherit;text-align:left;cursor:pointer}
       .todo-ledger-dock__jump:hover .todo-ledger-dock__content{color:var(--dsw-alias-label-primary)}
-      .todo-ledger-dock__jump:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));outline-offset:2px;border-radius:var(--dsw-radius-sm)}
-      .todo-ledger-dock__jump:disabled{cursor:wait;opacity:.65}
-      .todo-ledger-dock__jump-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}
+      .todo-ledger-dock__jump:focus-visible,.todo-ledger-sidebar button:focus-visible,.todo-ledger-sidebar input:focus-visible,.todo-ledger-sidebar select:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+      .todo-ledger-dock__jump:disabled,.todo-ledger-sidebar button:disabled{cursor:default;opacity:.45}
+      .todo-ledger-dock__jump-error,.todo-ledger-sidebar__jump-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}
+      .todo-ledger-sidebar{box-sizing:border-box;display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}
+      .todo-ledger-sidebar__tabs{display:flex;flex:none;gap:4px;padding:12px;border-bottom:.5px solid var(--dsw-alias-border-l2)}
+      .todo-ledger-sidebar__tab{flex:1;padding:4px 8px;border:0;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}
+      .todo-ledger-sidebar__tab[aria-selected=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .todo-ledger-sidebar__body{flex:1;min-height:0;overflow-y:auto;padding:12px}
+      .todo-ledger-sidebar__tasks{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none}
+      .todo-ledger-sidebar__task{min-width:0}
+      .todo-ledger-sidebar__task-row{display:flex;align-items:flex-start;gap:6px;min-width:0}
+      .todo-ledger-sidebar__glyph{display:grid;flex:none;place-items:center;width:16px;height:20px}
+      .todo-ledger-sidebar__index{flex:none;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+      .todo-ledger-sidebar__content{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
+      .todo-ledger-sidebar__task[data-status=void] .todo-ledger-sidebar__content{text-decoration:line-through;color:var(--dsw-alias-label-tertiary)}
+      .todo-ledger-sidebar__icon,.todo-ledger-sidebar__issue-toggle{display:inline-flex;flex:none;align-items:center;justify-content:center;gap:2px;min-height:24px;padding:0 4px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}
+      .todo-ledger-sidebar__icon:hover,.todo-ledger-sidebar__issue-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .todo-ledger-sidebar__issue-toggle{font-size:12px;white-space:nowrap}
+      .todo-ledger-sidebar__issues{margin:4px 0 2px 22px;padding-left:10px;border-left:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+      .todo-ledger-sidebar__issue-heading{margin:4px 0 2px;color:var(--dsw-alias-label-tertiary)}
+      .todo-ledger-sidebar__issue{display:flex;gap:6px;padding:2px 0;overflow-wrap:anywhere}
+      .todo-ledger-sidebar__turn-nav{display:flex;align-items:center;gap:4px;margin-bottom:8px}
+      .todo-ledger-sidebar__turn-input{box-sizing:border-box;flex:1;min-width:0;height:28px;padding:2px 6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;text-align:center}
+      .todo-ledger-sidebar__turn-select{box-sizing:border-box;width:100%;height:32px;margin-bottom:10px;padding:2px 6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit}
+      .todo-ledger-sidebar__turn-meta{margin-bottom:12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+      .todo-ledger-sidebar__turn-preview{margin-top:2px;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
+      .todo-ledger-sidebar__open{display:inline-block;margin-left:6px;color:var(--dsw-alias-state-business-primary)}
+      .todo-ledger-sidebar__empty{padding:28px 8px;color:var(--dsw-alias-label-tertiary);text-align:center}
     `;
 
     function ReviewRow({ useReview, setReview, t }) {
@@ -108,16 +168,20 @@ window.__ModuleLoader__.load({
 
     function progressLabel(todos, t) {
       const done = todos.filter((item) => item.status === 'completed').length;
-      const active = todos.filter((item) => item.status === 'in_progress').length;
-      const pending = todos.length - done - active;
+      const pending = todos.filter((item) => item.status === 'pending').length;
       return [
         ...(done > 0 ? [t('done', { done })] : []),
-        ...(active > 0 ? [t('active', { active })] : []),
         ...(pending > 0 ? [t('pending', { pending })] : []),
-      ].join(' · ');
+      ].join(' · ');
     }
 
-    const statusDotState = { completed: 'done', in_progress: 'ongoing', pending: 'idle' };
+    const statusDotState = { completed: 'done', in_progress: 'ongoing', pending: 'idle', void: 'idle' };
+    const statusLabels = (t) => ({
+      completed: t('statusCompleted'),
+      in_progress: t('statusActive'),
+      pending: t('statusPending'),
+      void: t('statusVoid'),
+    });
 
     function IssueLine({ text, t, nested = false }) {
       return h('div', {
@@ -207,13 +271,9 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function TodoPanel({ todos, t, onJump }) {
-      const [collapsed, setCollapsed] = React.useState(true);
+    function useTaskJump(onJump) {
       const [jumping, setJumping] = React.useState(null);
       const [jumpFailed, setJumpFailed] = React.useState(false);
-      if (todos.length === 0) return null;
-      const statusLabels = { completed: t('statusCompleted'), in_progress: t('statusActive'), pending: t('statusPending') };
-      const activeIssue = todos.find((item) => item.status === 'in_progress' && item.issue);
       const jump = async (item) => {
         if (jumping !== null) return;
         setJumping(item.startCallId);
@@ -223,6 +283,15 @@ window.__ModuleLoader__.load({
         setJumping(null);
         setJumpFailed(!opened);
       };
+      return { jumping, jumpFailed, jump };
+    }
+
+    function TodoPanel({ todos, t, onJump }) {
+      const [collapsed, setCollapsed] = React.useState(true);
+      const { jumping, jumpFailed, jump } = useTaskJump(onJump);
+      if (todos.length === 0) return null;
+      const labels = statusLabels(t);
+      const activeIssue = todos.find((item) => item.status === 'in_progress' && item.issue);
       return h('section', { className: 'todo-ledger-dock', 'data-testid': 'todo-panel', 'aria-label': t('todoTitle') },
         h('style', null, css),
         h('div', { className: 'todo-ledger-dock__body' },
@@ -254,7 +323,7 @@ window.__ModuleLoader__.load({
                 onClick: () => { void jump(item); },
               } : {}),
             },
-              h('span', { className: 'todo-ledger-dock__glyph', role: 'img', 'aria-label': statusLabels[item.status] }, h(StateDot, { state: statusDotState[item.status] })),
+              h('span', { className: 'todo-ledger-dock__glyph', role: 'img', 'aria-label': labels[item.status] }, h(StateDot, { state: statusDotState[item.status] })),
               h('span', { className: 'todo-ledger-dock__content' }, item.content),
             ),
             item.status === 'in_progress' && item.issue ? h(IssueLine, { text: item.issue, t, nested: true }) : null,
@@ -265,16 +334,193 @@ window.__ModuleLoader__.load({
     }
 
     function TodoDock({ useProjection, t, sessionId, openTodoStart }) {
+      const projection = useProjection('todoLedger');
       return h(TodoPanel, {
-        todos: useProjection('todoLedger') ?? [],
+        todos: projection?.dock ?? [],
         t,
         onJump: (item) => openTodoStart(sessionId, item),
       });
     }
 
+    function defaultTurn(turns) {
+      const nonEmpty = turns.filter((turn) => turn.total > 0);
+      const archived = nonEmpty.filter((turn) => !turn.open);
+      return (archived.at(-1) ?? nonEmpty.at(-1) ?? turns.at(-1))?.turn;
+    }
+
+    function adjacentTurn(turns, selectedTurn, offset) {
+      const index = turns.findIndex((turn) => turn.turn === selectedTurn);
+      return index < 0 ? undefined : turns[index + offset]?.turn;
+    }
+
+    function turnLabel(turn, t) {
+      return turn === 0 ? t('earlyTasks') : t('turn', { turn });
+    }
+
+    function IssueSummary({ issue, t }) {
+      return h('div', { className: 'todo-ledger-sidebar__issue' },
+        h('span', { 'aria-hidden': true }, '↳'),
+        h('span', { title: issue.name }, issue.name),
+        issue.active ? h('span', null, ` · ${t('currentIssue')}`) : null,
+      );
+    }
+
+    function TaskEntry({ item, showIndex, expanded, onToggle, t, jumping, onJump }) {
+      const labels = statusLabels(t);
+      const active = item.issues.filter((issue) => issue.active);
+      const historical = item.issues.filter((issue) => !issue.active);
+      return h('li', { className: 'todo-ledger-sidebar__task', 'data-status': item.status },
+        h('div', { className: 'todo-ledger-sidebar__task-row' },
+          h('span', { className: 'todo-ledger-sidebar__glyph', role: 'img', 'aria-label': labels[item.status] },
+            h(StateDot, { state: statusDotState[item.status] })),
+          showIndex ? h('span', { className: 'todo-ledger-sidebar__index' }, `${item.index}.`) : null,
+          h('span', { className: 'todo-ledger-sidebar__content', title: item.content }, item.content),
+          item.startCallId ? h('button', {
+            type: 'button',
+            className: 'todo-ledger-sidebar__icon',
+            title: t('jumpToStart'),
+            'aria-label': t('jumpToStart'),
+            'aria-busy': jumping === item.startCallId || undefined,
+            disabled: jumping !== null,
+            onClick: () => { void onJump(item); },
+          }, '↗') : null,
+          item.issues.length > 0 ? h('button', {
+            type: 'button',
+            className: 'todo-ledger-sidebar__issue-toggle',
+            'aria-expanded': expanded,
+            'aria-label': t('issueCount', { count: item.issues.length }),
+            onClick: onToggle,
+          },
+            h('span', null, t('issueCount', { count: item.issues.length })),
+            h(expanded ? IconChevronUpOutlineRegular : IconChevronDownOutlineRegular, { 'aria-hidden': true }),
+          ) : null,
+        ),
+        expanded && item.issues.length > 0 ? h('div', { className: 'todo-ledger-sidebar__issues' },
+          active.map((issue) => h(IssueSummary, { key: `active:${issue.name}`, issue, t })),
+          historical.length > 0 ? h('div', { className: 'todo-ledger-sidebar__issue-heading' }, t('historicalIssues', { count: historical.length })) : null,
+          historical.map((issue) => h(IssueSummary, { key: `history:${issue.name}`, issue, t })),
+        ) : null,
+      );
+    }
+
+    function TaskList({ items, scope, expandActive, t, jumping, onJump }) {
+      const [overrides, setOverrides] = React.useState({});
+      return h('ul', { className: 'todo-ledger-sidebar__tasks' }, items.map((item) => {
+        const key = `${scope}:${item.id}`;
+        const activeDefault = expandActive && item.status === 'in_progress' && item.issues.some((issue) => issue.active);
+        const expanded = overrides[key] ?? activeDefault;
+        return h(TaskEntry, {
+          key,
+          item,
+          showIndex: typeof item.index === 'number',
+          expanded,
+          onToggle: () => setOverrides((value) => ({ ...value, [key]: !expanded })),
+          t,
+          jumping,
+          onJump,
+        });
+      }));
+    }
+
+    function HistoryView({ turns, currentTurn, selectedTurn, onSelect, t, jumping, onJump }) {
+      const selected = turns.find((turn) => turn.turn === selectedTurn);
+      const [draft, setDraft] = React.useState(selectedTurn === undefined ? '' : String(selectedTurn));
+      React.useEffect(() => { setDraft(selectedTurn === undefined ? '' : String(selectedTurn)); }, [selectedTurn]);
+      if (!selected) return h('div', { className: 'todo-ledger-sidebar__empty' }, t('historyEmpty'));
+      const commit = () => {
+        const value = Number(draft);
+        if (draft.trim() && Number.isInteger(value) && turns.some((turn) => turn.turn === value)) onSelect(value);
+        else setDraft(String(selectedTurn));
+      };
+      const older = adjacentTurn(turns, selectedTurn, -1);
+      const newer = adjacentTurn(turns, selectedTurn, 1);
+      return h('div', null,
+        h('div', { className: 'todo-ledger-sidebar__turn-nav' },
+          h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('olderTurn'), 'aria-label': t('olderTurn'), disabled: older === undefined, onClick: () => onSelect(older) }, '‹'),
+          h('input', {
+            className: 'todo-ledger-sidebar__turn-input',
+            type: 'number',
+            min: 0,
+            step: 1,
+            value: draft,
+            'aria-label': t('turnNumber'),
+            onChange: (event) => setDraft(event.target.value),
+            onBlur: commit,
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') { event.preventDefault(); commit(); }
+              if (event.key === 'Escape') setDraft(String(selectedTurn));
+            },
+          }),
+          h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('newerTurn'), 'aria-label': t('newerTurn'), disabled: newer === undefined, onClick: () => onSelect(newer) }, '›'),
+        ),
+        h('select', {
+          className: 'todo-ledger-sidebar__turn-select',
+          value: selectedTurn,
+          'aria-label': t('turnSummary'),
+          onChange: (event) => onSelect(Number(event.target.value)),
+        }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
+          `${turnLabel(turn.turn, t)} · ${turn.total}${turn.preview ? ` · ${turn.preview}` : ''}`))),
+        h('div', { className: 'todo-ledger-sidebar__turn-meta' },
+          h('div', null,
+            t('taskSummary', { total: selected.total, completed: selected.completed, voided: selected.voided }),
+            selected.turn === currentTurn && selected.open ? h('span', { className: 'todo-ledger-sidebar__open' }, t('openTurn')) : null,
+          ),
+          selected.preview ? h('div', { className: 'todo-ledger-sidebar__turn-preview' }, selected.preview) : null,
+        ),
+        selected.tasks.length === 0
+          ? h('div', { className: 'todo-ledger-sidebar__empty' }, t('emptyTurn'))
+          : h(TaskList, { items: selected.tasks, scope: `turn:${selected.turn}`, expandActive: false, t, jumping, onJump }),
+      );
+    }
+
+    function TodoSidebarSession({ useProjection, t, sessionId, openTodoStart, uiStates }) {
+      const saved = uiStates.get(sessionId);
+      const [view, setView] = React.useState(saved?.view ?? 'current');
+      const [selectedTurn, setSelectedTurn] = React.useState(saved?.selectedTurn);
+      const projection = useProjection('todoLedger');
+      const turns = projection?.turns ?? [];
+      const currentTurn = projection?.currentTurn ?? 0;
+      const { jumping, jumpFailed, jump } = useTaskJump((item) => openTodoStart(sessionId, item));
+      const validSelection = turns.some((turn) => turn.turn === selectedTurn);
+      const fallback = defaultTurn(turns);
+      const effectiveSelection = validSelection ? selectedTurn : fallback;
+      React.useEffect(() => {
+        if (view === 'history' && !validSelection && fallback !== undefined) setSelectedTurn(fallback);
+      }, [view, validSelection, fallback]);
+      React.useEffect(() => {
+        uiStates.set(sessionId, { view, selectedTurn });
+      }, [sessionId, view, selectedTurn, uiStates]);
+      const onJump = (item) => jump(item);
+      return h('section', { className: 'todo-ledger-sidebar', 'aria-label': t('sidebarTitle') },
+        h('style', null, css),
+        h('div', { className: 'todo-ledger-sidebar__tabs', role: 'tablist' },
+          h('button', { type: 'button', role: 'tab', className: 'todo-ledger-sidebar__tab', 'aria-selected': view === 'current', onClick: () => setView('current') }, t('currentPlan')),
+          h('button', { type: 'button', role: 'tab', className: 'todo-ledger-sidebar__tab', 'aria-selected': view === 'history', onClick: () => setView('history') }, t('history')),
+        ),
+        h('div', { className: 'todo-ledger-sidebar__body', role: 'tabpanel' },
+          view === 'current'
+            ? ((projection?.current.length ?? 0) === 0
+              ? h('div', { className: 'todo-ledger-sidebar__empty' }, t('currentPlanEmpty'))
+              : h(TaskList, { items: projection.current, scope: 'current', expandActive: true, t, jumping, onJump }))
+            : h(HistoryView, { turns, currentTurn, selectedTurn: effectiveSelection, onSelect: setSelectedTurn, t, jumping, onJump }),
+          jumpFailed ? h('div', { className: 'todo-ledger-sidebar__jump-error', role: 'alert' }, t('jumpFailed')) : null,
+        ),
+      );
+    }
+
+    function TodoSidebar(props) {
+      return h(TodoSidebarSession, { ...props, key: props.sessionId });
+    }
+
+    function TodoSidebarTitle({ t }) {
+      return h('span', null, t('sidebarTitle'));
+    }
+
     return {
-      inject: ['slots', 'locale', 'configForms', 'sessions'],
+      inject: ['slots', 'locale', 'configForms', 'sessions', 'sidebarRightTabs'],
       apply(ctx) {
+        const uiStates = new Map();
+        const t = ctx.locale.bind(locale);
         ctx.effect(() => ctx.locale.register(locale, { en, zh }));
         ctx.effect(() => ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
@@ -283,6 +529,29 @@ window.__ModuleLoader__.load({
           locale,
           inject: () => ({ openTodoStart: (sessionId, item) => openTodoStart(ctx, sessionId, item) }),
         }, TodoDock)));
+        ctx.effect(() => ctx.sidebarRightTabs.register({
+          id: sidebarId,
+          kind: 'todo-ledger',
+          title: () => t('sidebarTitle'),
+          guide: [{
+            id: 'tasks',
+            order: 30,
+            title: () => t('sidebarTitle'),
+            description: () => t('sidebarDescription'),
+            icon: IconChecklistOutlineRegular,
+          }],
+        }));
+        ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab',
+          key: sidebarId,
+          locale,
+          inject: () => ({ uiStates, openTodoStart: (sessionId, item) => openTodoStart(ctx, sessionId, item) }),
+        }, TodoSidebar)));
+        ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+          name: 'sidebar.right.pane.tab.title',
+          key: sidebarId,
+          locale,
+        }, TodoSidebarTitle)));
         const form = ctx.configForms.get(namespace);
         const face = () => ({
           hooks: { review: form },

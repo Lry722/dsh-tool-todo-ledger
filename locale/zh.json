@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "任务账本",
-    "description": "增量维护任务规划，保留状态流转与执行上报，并可依据 AGENTS.md 审查规划。"
+    "description": "增量维护任务规划，保留逐 turn 工作集、状态流转与 issue 摘要，并提供 Dock 和右侧历史视图。"
   }
 }

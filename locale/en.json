@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Todo Ledger",
-    "description": "Incrementally plan tasks, preserve transitions and reports, and optionally review plans against AGENTS.md."
+    "description": "Incrementally plan tasks, preserve per-turn worksets and issue summaries, and inspect them in the Dock and right sidebar."
   }
 }

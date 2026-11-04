@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   currentView,
+  dockTodos,
   emptyLedger,
   finishLedger,
   foldLedgerEvent,
@@ -214,11 +215,11 @@ test('legacy whole-list events remain replayable', () => {
   assert.deepEqual(numberedPlan(state), [{ index: 1, content: 'Legacy', status: 'completed' }]);
 });
 
-test('the completed dock view remains non-empty across turn boundaries', () => {
+test('a new turn hides completed Dock items without changing the compatibility snapshot', () => {
   let state = writeLedger(emptyLedger(), ['One']).state;
   state = startLedger(state, 1).state;
   state = finishLedger(state, 1).state;
-  const next = foldLedgerEvent(state, { type: 'turn/start', seq: 8, time: 800, data: {} });
-  assert.strictEqual(next, state);
+  const next = foldLedgerEvent(state, { type: 'turn/start', seq: 8, time: 800, data: { turn: 1 } });
+  assert.deepEqual(dockTodos(next), []);
   assert.deepEqual(legacyTodos(next), [{ content: 'One', status: 'completed' }]);
 });
