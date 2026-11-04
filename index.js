@@ -101,7 +101,7 @@ export function apply(ctx, config) {
     init: emptyLedger,
     apply: foldLedgerEvent,
     wire: { viewSchema: todoViewSchema, view: ledgerView },
-    stateVersion: 5,
+    stateVersion: 6,
   });
   installReportReminder(ctx);
 
