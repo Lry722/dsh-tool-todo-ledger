@@ -7,8 +7,6 @@ window.__ModuleLoader__.load({
       StateDot,
       IconChecklistOutlineRegular,
       IconChevronDownOutlineRegular,
-      IconChevronLeftOutlineRegular,
-      IconChevronRightOutlineRegular,
       IconChevronUpOutlineRegular,
     } = require('@deepseek-ai/dsh-client-ui-primitives');
     const h = React.createElement;
@@ -146,11 +144,14 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__turn-select{box-sizing:border-box;width:100%;height:28px;padding:0 24px 0 2px;border:0;background:transparent;color:transparent;font:inherit;font-size:14px;line-height:22px;font-weight:500;appearance:none;-webkit-appearance:none}
       .todo-ledger-sidebar__turn-select option{color:var(--dsw-alias-label-primary)}
       .todo-ledger-sidebar__turn-select-chevron{position:absolute;top:7px;right:4px;color:var(--dsw-alias-label-tertiary);pointer-events:none}
-      .todo-ledger-sidebar__turn-stepper{display:inline-flex;flex:none;align-items:center;height:26px;padding:1px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-interactive-bg-hover)}
-      .todo-ledger-sidebar__turn-stepper .todo-ledger-sidebar__icon{width:22px;height:22px;margin:0}
-      .todo-ledger-sidebar__turn-stepper .todo-ledger-sidebar__icon:hover:not(:disabled){background:var(--dsw-specific-menu)}
-      .todo-ledger-sidebar__turn-input{box-sizing:border-box;width:36px;min-width:0;height:22px;padding:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:20px;text-align:center;appearance:textfield;-moz-appearance:textfield}
-      .todo-ledger-sidebar__turn-input::-webkit-outer-spin-button,.todo-ledger-sidebar__turn-input::-webkit-inner-spin-button{margin:0;-webkit-appearance:none}
+      .todo-ledger-sidebar__history{display:flex;align-items:flex-start;gap:8px}
+      .todo-ledger-sidebar__history-main{flex:1;min-width:0}
+      .todo-ledger-sidebar__turn-rail{position:relative;box-sizing:border-box;flex:none;width:28px;max-height:min(420px,60vh);padding:6px 0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+      .todo-ledger-sidebar__turn-rail::-webkit-scrollbar{display:none}
+      .todo-ledger-sidebar__turn-rail-mark{position:relative;display:block;width:28px;height:10px;padding:0;border:0;border-radius:8px;background:transparent;cursor:pointer}
+      .todo-ledger-sidebar__turn-rail-mark:before{content:"";position:absolute;top:50%;right:0;width:20px;height:2px;border-radius:2px;background:var(--dsw-alias-border-l4);transform:translateY(-50%) scaleX(.6);transform-origin:100%;transition:transform .14s,background-color .14s}
+      .todo-ledger-sidebar__turn-rail-mark:hover:before,.todo-ledger-sidebar__turn-rail-mark:focus-visible:before{background:var(--dsw-alias-label-tertiary);transform:translateY(-50%) scaleX(.9)}
+      .todo-ledger-sidebar__turn-rail-mark[data-active=true]:before{background:var(--dsw-alias-label-primary);transform:translateY(-50%) scaleX(1)}
       .todo-ledger-sidebar__turn-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 10px;padding:0 0 10px;border-bottom:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
       .todo-ledger-sidebar__turn-stats{display:flex;flex:1 1 auto;flex-wrap:wrap;gap:2px 10px;min-width:0}
       .todo-ledger-sidebar__open{display:inline-block;color:var(--dsw-alias-label-tertiary)}
@@ -374,13 +375,38 @@ window.__ModuleLoader__.load({
       return (archived.at(-1) ?? nonEmpty.at(-1) ?? turns.at(-1))?.turn;
     }
 
-    function adjacentTurn(turns, selectedTurn, offset) {
-      const index = turns.findIndex((turn) => turn.turn === selectedTurn);
-      return index < 0 ? undefined : turns[index + offset]?.turn;
-    }
-
     function turnLabel(turn, t) {
       return turn === 0 ? t('earlyTasks') : t('turn', { turn });
+    }
+
+    function turnDetailsLabel(turn, t) {
+      return [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total }), ...(turn.tasks.length > 0 ? [turn.tasks[0].content] : [])].join('\u3000');
+    }
+
+    function TurnRail({ turns, selectedTurn, onSelect, t }) {
+      const railRef = React.useRef(null);
+      const activeRef = React.useRef(null);
+      React.useEffect(() => {
+        const rail = railRef.current;
+        const active = activeRef.current;
+        if (!rail || !active) return;
+        const centered = active.offsetTop - (rail.clientHeight - active.clientHeight) / 2;
+        rail.scrollTop = Math.max(0, Math.min(centered, rail.scrollHeight - rail.clientHeight));
+      }, [selectedTurn, turns.length]);
+      if (turns.length < 2) return null;
+      return h('nav', { ref: railRef, className: 'todo-ledger-sidebar__turn-rail', 'aria-label': t('turnSummary') },
+        turns.map((turn) => h('button', {
+          key: turn.turn,
+          ref: turn.turn === selectedTurn ? activeRef : undefined,
+          type: 'button',
+          className: 'todo-ledger-sidebar__turn-rail-mark',
+          'data-active': turn.turn === selectedTurn || undefined,
+          'aria-current': turn.turn === selectedTurn ? 'true' : undefined,
+          'aria-label': turnDetailsLabel(turn, t),
+          title: turnDetailsLabel(turn, t),
+          onClick: () => onSelect(turn.turn),
+        })),
+      );
     }
 
     function IssueSummary({ issue }) {
@@ -449,61 +475,34 @@ window.__ModuleLoader__.load({
 
     function HistoryView({ turns, currentTurn, selectedTurn, onSelect, t, jumping, onJump }) {
       const selected = turns.find((turn) => turn.turn === selectedTurn);
-      const [draft, setDraft] = React.useState(selectedTurn === undefined ? '' : String(selectedTurn));
-      React.useEffect(() => { setDraft(selectedTurn === undefined ? '' : String(selectedTurn)); }, [selectedTurn]);
       if (!selected) return h('div', { className: 'todo-ledger-sidebar__empty' }, t('historyEmpty'));
-      const commit = () => {
-        const value = Number(draft);
-        if (draft.trim() && Number.isInteger(value) && turns.some((turn) => turn.turn === value)) onSelect(value);
-        else setDraft(String(selectedTurn));
-      };
-      const older = adjacentTurn(turns, selectedTurn, -1);
-      const newer = adjacentTurn(turns, selectedTurn, 1);
-      return h('div', null,
-        h('div', { className: 'todo-ledger-sidebar__turn-heading' },
-          h('div', { className: 'todo-ledger-sidebar__turn-selector' },
-            h('span', { className: 'todo-ledger-sidebar__turn-select-value', 'aria-hidden': true },
-              [turnLabel(selected.turn, t), t('taskTotal', { total: selected.total })].join('\u3000')),
-            h(IconChevronDownOutlineRegular, { className: 'todo-ledger-sidebar__turn-select-chevron', size: 14, 'aria-hidden': true }),
-            h('select', {
-              className: 'todo-ledger-sidebar__turn-select',
-              value: selectedTurn,
-              'aria-label': t('turnSummary'),
-              onChange: (event) => onSelect(Number(event.target.value)),
-            }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
-              [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total }), ...(turn.tasks.length > 0 ? [turn.tasks[0].content] : [])].join('\u3000')))),
+      return h('div', { className: 'todo-ledger-sidebar__history' },
+        h('div', { className: 'todo-ledger-sidebar__history-main' },
+          h('div', { className: 'todo-ledger-sidebar__turn-heading' },
+            h('div', { className: 'todo-ledger-sidebar__turn-selector' },
+              h('span', { className: 'todo-ledger-sidebar__turn-select-value', 'aria-hidden': true },
+                [turnLabel(selected.turn, t), t('taskTotal', { total: selected.total })].join('\u3000')),
+              h(IconChevronDownOutlineRegular, { className: 'todo-ledger-sidebar__turn-select-chevron', size: 14, 'aria-hidden': true }),
+              h('select', {
+                className: 'todo-ledger-sidebar__turn-select',
+                value: selectedTurn,
+                'aria-label': t('turnSummary'),
+                onChange: (event) => onSelect(Number(event.target.value)),
+              }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn }, turnDetailsLabel(turn, t)))),
+            ),
           ),
+          h('div', { className: 'todo-ledger-sidebar__turn-meta' },
+            h('div', { className: 'todo-ledger-sidebar__turn-stats' },
+              h('span', null, t('taskCompleted', { completed: selected.completed })),
+              h('span', null, t('taskVoided', { voided: selected.voided })),
+              selected.turn === currentTurn && selected.open ? h('span', { className: 'todo-ledger-sidebar__open' }, t('openTurn')) : null,
+            ),
+          ),
+          selected.tasks.length === 0
+            ? h('div', { className: 'todo-ledger-sidebar__empty' }, t('emptyTurn'))
+            : h(TaskList, { items: selected.tasks, scope: `turn:${selected.turn}`, expandActive: false, t, jumping, onJump }),
         ),
-        h('div', { className: 'todo-ledger-sidebar__turn-meta' },
-          h('div', { className: 'todo-ledger-sidebar__turn-stats' },
-            h('span', null, t('taskCompleted', { completed: selected.completed })),
-            h('span', null, t('taskVoided', { voided: selected.voided })),
-            selected.turn === currentTurn && selected.open ? h('span', { className: 'todo-ledger-sidebar__open' }, t('openTurn')) : null,
-          ),
-          h('div', { className: 'todo-ledger-sidebar__turn-stepper' },
-            h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('olderTurn'), 'aria-label': t('olderTurn'), disabled: older === undefined, onClick: () => onSelect(older) },
-              h(IconChevronLeftOutlineRegular, { size: 14, 'aria-hidden': true })),
-            h('input', {
-              className: 'todo-ledger-sidebar__turn-input',
-              type: 'number',
-              min: 0,
-              step: 1,
-              value: draft,
-              'aria-label': t('turnNumber'),
-              onChange: (event) => setDraft(event.target.value),
-              onBlur: commit,
-              onKeyDown: (event) => {
-                if (event.key === 'Enter') { event.preventDefault(); commit(); }
-                if (event.key === 'Escape') setDraft(String(selectedTurn));
-              },
-            }),
-            h('button', { type: 'button', className: 'todo-ledger-sidebar__icon', title: t('newerTurn'), 'aria-label': t('newerTurn'), disabled: newer === undefined, onClick: () => onSelect(newer) },
-              h(IconChevronRightOutlineRegular, { size: 14, 'aria-hidden': true })),
-          ),
-        ),
-        selected.tasks.length === 0
-          ? h('div', { className: 'todo-ledger-sidebar__empty' }, t('emptyTurn'))
-          : h(TaskList, { items: selected.tasks, scope: `turn:${selected.turn}`, expandActive: false, t, jumping, onJump }),
+        h(TurnRail, { turns, selectedTurn, onSelect, t }),
       );
     }
 
