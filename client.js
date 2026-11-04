@@ -46,7 +46,7 @@ window.__ModuleLoader__.load({
       taskVoided: '{voided} discarded',
       jumpToStart: 'Jump to the step that started this task',
       jumpFailed: 'Could not locate the requested step',
-      jumpToIssue: 'Jump to the latest step that reported this issue',
+      jumpToIssue: 'Jump to the latest step that reported {issue}',
     };
     const zh = {
       title: '使用 AGENTS.md 审查任务规划',
@@ -80,7 +80,7 @@ window.__ModuleLoader__.load({
       taskVoided: '{voided} 已作废',
       jumpToStart: '跳转到开始此任务的步骤',
       jumpFailed: '无法定位对应步骤',
-      jumpToIssue: '跳转到最近报告此 issue 的步骤',
+      jumpToIssue: '跳转到最近报告 {issue} 的步骤',
     };
 
     const css = `
@@ -235,7 +235,7 @@ window.__ModuleLoader__.load({
         className: `todo-ledger-dock__issue${nested ? ' todo-ledger-dock__issue--nested' : ''}${navigable ? ' todo-ledger-dock__jump todo-ledger-dock__issue-jump' : ''}`,
         ...(navigable ? {
           type: 'button',
-          'aria-label': t('jumpToIssue'),
+          'aria-label': t('jumpToIssue', { issue: text }),
           disabled: jumping !== null,
           'aria-busy': jumping === startCallId || undefined,
           onClick: () => { void onJump({ name: text, startCallId, startSeq }); },
@@ -483,7 +483,7 @@ window.__ModuleLoader__.load({
         'data-active': issue.active || undefined,
         ...(navigable ? {
           type: 'button',
-          'aria-label': t('jumpToIssue'),
+          'aria-label': t('jumpToIssue', { issue: issue.name }),
           'aria-busy': jumping === issue.startCallId || undefined,
           disabled: jumping !== null,
           onClick: () => { void onJump(issue); },

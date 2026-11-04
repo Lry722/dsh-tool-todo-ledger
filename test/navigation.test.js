@@ -135,6 +135,18 @@ test('report targets navigate current issue summaries and both Dock issue layout
   }]);
 });
 
+test('a latest same-name report without a call id clears the previous issue target', () => {
+  let state = startedTask();
+  state = issueReport(state, 55, { index: 1, inIssue: true, issue: 'Inspect' }, 'report-55');
+  state = issueReport(state, 56, { index: 1, inIssue: true, issue: 'Inspect' });
+  assert.deepEqual(ledgerView(state).current[0].issues, [{
+    name: 'Inspect', firstSeq: 55, lastSeq: 56, active: true,
+  }]);
+  assert.deepEqual(dockTodos(state), [{
+    content: 'Task', status: 'in_progress', issue: 'Inspect',
+  }]);
+});
+
 test('older report operations recover their enclosing tool call during replay', () => {
   let state = startedTask();
   state = foldLedgerEvent(state, {
