@@ -107,7 +107,6 @@ window.__ModuleLoader__.load({
       .todo-ledger-dock__jump{width:100%;padding:0;border:0;background:transparent;font-family:inherit;text-align:left;cursor:pointer}
       .todo-ledger-dock__issue.todo-ledger-dock__issue-jump{box-sizing:border-box;padding-left:25px}
       .todo-ledger-dock__issue-jump .todo-ledger-dock__issue-content{flex:1}
-      .todo-ledger-dock__issue-arrow{flex:none;color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-dock__jump:hover .todo-ledger-dock__content,.todo-ledger-dock__jump:hover .todo-ledger-dock__issue-content{color:var(--dsw-alias-label-primary)}
       .todo-ledger-dock__jump:focus-visible,.todo-ledger-sidebar button:focus-visible,.todo-ledger-sidebar input:focus-visible,.todo-ledger-sidebar select:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
       .todo-ledger-dock__jump:disabled,.todo-ledger-sidebar button:disabled{cursor:default;opacity:.4}
@@ -148,7 +147,6 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__issue-jump{box-sizing:border-box;display:flex;align-items:flex-start;gap:8px;width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
       .todo-ledger-sidebar__issue-jump:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .todo-ledger-sidebar__issue-name{flex:1;min-width:0}
-      .todo-ledger-sidebar__issue-arrow{flex:none;color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-sidebar__turn-heading{display:flex;align-items:center;gap:8px;min-width:0}
       .todo-ledger-sidebar__turn-selector{position:relative;flex:1;min-width:0}
       .todo-ledger-sidebar__turn-select-value{position:absolute;inset:0 24px 0 2px;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:14px;line-height:28px;font-weight:500;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
@@ -246,7 +244,6 @@ window.__ModuleLoader__.load({
       },
         h('span', { className: 'todo-ledger-dock__branch', 'aria-hidden': true }),
         h('span', { className: 'todo-ledger-dock__issue-content' }, text),
-        navigable ? h('span', { className: 'todo-ledger-dock__issue-arrow', 'aria-hidden': true }, '↗') : null,
       );
     }
 
@@ -490,7 +487,6 @@ window.__ModuleLoader__.load({
         } : {}),
       },
         h('span', { className: 'todo-ledger-sidebar__issue-name' }, issue.name),
-        navigable ? h('span', { className: 'todo-ledger-sidebar__issue-arrow', 'aria-hidden': true }, '↗') : null,
       );
     }
 
