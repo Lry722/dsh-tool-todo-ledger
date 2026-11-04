@@ -142,7 +142,11 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__issue+.todo-ledger-sidebar__issue{border-top:.5px solid var(--dsw-alias-border-l2)}
       .todo-ledger-sidebar__issue[data-active=true]{color:var(--dsw-alias-label-primary);font-weight:500}
       .todo-ledger-sidebar__turn-heading{display:flex;align-items:center;gap:8px;min-width:0}
-      .todo-ledger-sidebar__turn-select{box-sizing:border-box;flex:1;min-width:0;height:28px;padding:0 2px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;font-weight:500;text-overflow:ellipsis}
+      .todo-ledger-sidebar__turn-selector{position:relative;flex:1;min-width:0}
+      .todo-ledger-sidebar__turn-select-value{position:absolute;inset:0 24px 0 2px;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:14px;line-height:28px;font-weight:500;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
+      .todo-ledger-sidebar__turn-select{box-sizing:border-box;width:100%;height:28px;padding:0 24px 0 2px;border:0;background:transparent;color:transparent;font:inherit;font-size:14px;line-height:22px;font-weight:500;appearance:none;-webkit-appearance:none}
+      .todo-ledger-sidebar__turn-select option{color:var(--dsw-alias-label-primary)}
+      .todo-ledger-sidebar__turn-select-chevron{position:absolute;top:7px;right:4px;color:var(--dsw-alias-label-tertiary);pointer-events:none}
       .todo-ledger-sidebar__turn-stepper{display:inline-flex;flex:none;align-items:center;height:26px;padding:1px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-interactive-bg-hover)}
       .todo-ledger-sidebar__turn-stepper .todo-ledger-sidebar__icon{width:22px;height:22px;margin:0}
       .todo-ledger-sidebar__turn-stepper .todo-ledger-sidebar__icon:hover:not(:disabled){background:var(--dsw-specific-menu)}
@@ -459,13 +463,18 @@ window.__ModuleLoader__.load({
       const newer = adjacentTurn(turns, selectedTurn, 1);
       return h('div', null,
         h('div', { className: 'todo-ledger-sidebar__turn-heading' },
-          h('select', {
-            className: 'todo-ledger-sidebar__turn-select',
-            value: selectedTurn,
-            'aria-label': t('turnSummary'),
-            onChange: (event) => onSelect(Number(event.target.value)),
-          }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
-            [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total })].join('\u3000')))),
+          h('div', { className: 'todo-ledger-sidebar__turn-selector' },
+            h('span', { className: 'todo-ledger-sidebar__turn-select-value', 'aria-hidden': true },
+              [turnLabel(selected.turn, t), t('taskTotal', { total: selected.total })].join('\u3000')),
+            h(IconChevronDownOutlineRegular, { className: 'todo-ledger-sidebar__turn-select-chevron', size: 14, 'aria-hidden': true }),
+            h('select', {
+              className: 'todo-ledger-sidebar__turn-select',
+              value: selectedTurn,
+              'aria-label': t('turnSummary'),
+              onChange: (event) => onSelect(Number(event.target.value)),
+            }, [...turns].reverse().map((turn) => h('option', { key: turn.turn, value: turn.turn },
+              [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total }), ...(turn.tasks.length > 0 ? [turn.tasks[0].content] : [])].join('\u3000')))),
+          ),
         ),
         h('div', { className: 'todo-ledger-sidebar__turn-meta' },
           h('div', { className: 'todo-ledger-sidebar__turn-stats' },
