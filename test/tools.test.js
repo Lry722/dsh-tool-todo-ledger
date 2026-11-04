@@ -184,6 +184,9 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
   assert.match(TOOL_PROMPTS.todo_report.description, /Do not send todo_report alone in an earlier message/);
   assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /distinct, narrower subtask/);
   assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /Never use an issue to restate the main task/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /Whenever inIssue is true, provide issue explicitly/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /provide issue when entering or changing an issue/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /re-entering after inIssue:false/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /Omit it only while continuing the same active issue in the same main task/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /do not repeat it on every report/);
   assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /never copy or paraphrase the main task/);
 });

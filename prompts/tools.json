@@ -19,7 +19,7 @@
     "parameters": {
       "index": "Number of the in-progress main task shown by todo_read. To switch to the next main task, first use todo_write with finish for the current task and start for the next task, then report the new index. Reordering is required to abandon or replace unfinished work.",
       "inIssue": "Set true only while working on a distinct, narrower subtask of the main task, such as a specific investigation or debugging problem. Set false for routine actions that directly carry out the main task or when no separate subtask exists. Never use an issue to restate the main task or to avoid finishing and advancing main tasks.",
-      "issue": "A short, stable name for the narrower subtask; never copy or paraphrase the main task. Whenever inIssue is true, provide issue explicitly, repeating the current name when continuing the same issue. When inIssue is false, always omit it."
+      "issue": "A short, stable name for the narrower subtask; never copy or paraphrase the main task. When inIssue is true, provide issue when entering or changing an issue, including re-entering after inIssue:false or switching main tasks. Omit it only while continuing the same active issue in the same main task; do not repeat it on every report. When inIssue is false, always omit it."
     }
   }
 }
