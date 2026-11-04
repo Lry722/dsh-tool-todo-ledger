@@ -176,4 +176,9 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
     const text = [tool.description, ...parameters].join('\n');
     assert.doesNotMatch(text, /\b(?:ledger|step|stateless|voids|voided|bounded|top-level|1-based|localTask|local task)\b/i, tool.name);
   }
+  assert.match(TOOL_PROMPTS.todo_write.description, /questions and explanations/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /finish and start together/);
+  assert.match(TOOL_PROMPTS.todo_report.description, /exactly once before non-todo tools/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /even when quick/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /still call todo_report/);
 });

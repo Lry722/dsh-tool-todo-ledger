@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { REPORTING_SECTION, REVIEW_POLICY, reviewRequest, reviewResult } from '../src/prompts.js';
 
 test('external prompts load and interpolate review data verbatim', () => {
-  assert.match(REPORTING_SECTION, /For each new request, call todo_write before any other tool/);
+  assert.match(REPORTING_SECTION, /Every new user request is a main task/);
+  assert.match(REPORTING_SECTION, /including questions and explanations/);
   assert.match(REPORTING_SECTION, /every assistant message/);
+  assert.match(REPORTING_SECTION, /non-todo tools/);
   assert.match(REPORTING_SECTION, /exactly one todo_report call/);
-  assert.match(REPORTING_SECTION, /no other tool calls/);
-  assert.match(REPORTING_SECTION, /An issue is a concrete piece of work/);
   assert.match(REPORTING_SECTION, /Issues are only report labels/);
   assert.doesNotMatch(REPORTING_SECTION, /local task|localTask/i);
   assert.doesNotMatch(REPORTING_SECTION, /text-only/);

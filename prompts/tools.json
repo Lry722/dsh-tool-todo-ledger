@@ -1,6 +1,6 @@
 {
   "todo_write": {
-    "description": "Modify the main task plan and task states. Finish tasks, append or reorder work, and start pending tasks in that order. Completed tasks and history are immutable.",
+    "description": "Modify the main task plan and task states. Before any other tool for each new user request, create and start one main task, including for questions and explanations. Finish tasks, append or reorder work, and start pending tasks in that order; use finish and start together for direct transitions. Completed tasks and history are immutable.",
     "parameters": {
       "todos": "New main task descriptions to append, or replacements when reorderFrom is set. Omit when only changing task states. With reorderFrom, omit or use an empty array to remove unfinished tasks without replacements.",
       "reorderFrom": "Existing task number at which to remove unfinished tasks from the current plan and append replacements. Omit to append todos or only change task states.",
@@ -15,11 +15,11 @@
     }
   },
   "todo_report": {
-    "description": "Identify the main task and optional issue that the current work belongs to.",
+    "description": "Identify the main task and current issue context. While a main task is in progress, call exactly once before non-todo tools in every tool-using assistant message, including quick routine actions. Always provide index and inIssue; omit issue only to continue the current issue, not to skip reporting.",
     "parameters": {
       "index": "Number of the in-progress main task shown by todo_read. Switching main tasks requires the previous one to be completed or the plan to be explicitly reordered.",
-      "inIssue": "Set true for a separate, time-consuming issue; set false for a quick routine action directly serving the main task.",
-      "issue": "A short name for the issue. Required to enter or change an issue. When inIssue is true, omit it to continue the current issue. When inIssue is false, always omit it."
+      "inIssue": "Set true for any distinct concrete issue within the main task, including focused inspection, research, implementation, debugging, or verification, even when quick. Set false only for work directly serving the main task as a whole without a separate issue.",
+      "issue": "A short, stable name for the issue. Required to enter or change an issue. When inIssue is true, omit it to continue the current issue without renaming it; still call todo_report. When inIssue is false, always omit it."
     }
   }
 }
