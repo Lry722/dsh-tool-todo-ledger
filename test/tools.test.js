@@ -176,9 +176,14 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
     const text = [tool.description, ...parameters].join('\n');
     assert.doesNotMatch(text, /\b(?:ledger|step|stateless|voids|voided|bounded|top-level|1-based|localTask|local task)\b/i, tool.name);
   }
-  assert.match(TOOL_PROMPTS.todo_write.description, /finish and start together/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /Issue reports never complete or advance main tasks/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /finish for the current task and start for the next task in the same call/);
   assert.match(TOOL_PROMPTS.todo_write.description, /rejected until one is in progress/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /exactly one todo_report before those tools/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /even when quick/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /still call todo_report/);
+  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /instead of using start alone/);
+  assert.match(TOOL_PROMPTS.todo_report.description, /in that same assistant message/);
+  assert.match(TOOL_PROMPTS.todo_report.description, /Do not send todo_report alone in an earlier message/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /distinct, narrower subtask/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /Never use an issue to restate the main task/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /Whenever inIssue is true, provide issue explicitly/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /never copy or paraphrase the main task/);
 });

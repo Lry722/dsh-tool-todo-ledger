@@ -1,11 +1,11 @@
 {
   "todo_write": {
-    "description": "Record and update a task list to plan long-running work and show progress. Before calling any other tool, create and start a main task; other tools are rejected until one is in progress. Add one todo per concrete action before you start. Finish tasks, append or reorder work, and start pending tasks in that order; use finish and start together for direct transitions. Completed tasks are immutable.",
+    "description": "Record and update main tasks to plan long-running work and show progress. Before calling any non-todo tool, create and start a main task; other tools are rejected until one is in progress. Add one todo per concrete action before you start. Issue reports never complete or advance main tasks: finish each main task as soon as its objective is achieved. Operations run in finish, append/reorder, then start order. For a direct transition, pass finish for the current task and start for the next task in the same call; never start the next task while leaving the current one in progress. Completed tasks are immutable.",
     "parameters": {
       "todos": "New main task descriptions to append, or replacements when reorderFrom is set. Omit when only changing task states.",
       "reorderFrom": "Existing task number at which to remove unfinished tasks from the current plan and append replacements. Omit to append todos or only change task states.",
-      "finish": "Number of the current in-progress main task to complete before any planning changes.",
-      "start": "Number of the pending main task to start after any planning changes. Earlier tasks in the current plan must be completed."
+      "finish": "Number of the current in-progress main task to complete before any planning changes. Required when advancing to another main task; pass it together with start for a direct transition.",
+      "start": "Number of the pending main task to start after any planning changes. Earlier tasks in the current plan must be completed. If another main task is in progress, provide finish for it in the same call instead of using start alone."
     }
   },
   "todo_read": {
@@ -15,11 +15,11 @@
     }
   },
   "todo_report": {
-    "description": "Identify the main task and current issue context. While a main task is in progress, every assistant message that calls other tools must include exactly one todo_report before those tools; otherwise the other calls are rejected.",
+    "description": "Identify the main task and current issue context. Whenever an assistant message calls non-todo tools, put exactly one todo_report first and the other tool calls after it in that same assistant message, including for quick routine actions. Do not send todo_report alone in an earlier message and then call the other tools in a later message; they will be rejected. Messages calling only todo tools and final responses do not need a report.",
     "parameters": {
-      "index": "Number of the in-progress main task shown by todo_read. Switching main tasks requires the previous one to be completed or the plan to be explicitly reordered.",
-      "inIssue": "Set true for any distinct concrete issue within the main task, including focused inspection, research, implementation, debugging, or verification, even when quick. Set false only for work directly serving the main task as a whole without a separate issue.",
-      "issue": "A short, stable name for the issue. Required to enter or change an issue. When inIssue is true, omit it to continue the current issue without renaming it; still call todo_report. When inIssue is false, always omit it."
+      "index": "Number of the in-progress main task shown by todo_read. To switch to the next main task, first use todo_write with finish for the current task and start for the next task, then report the new index. Reordering is required to abandon or replace unfinished work.",
+      "inIssue": "Set true only while working on a distinct, narrower subtask of the main task, such as a specific investigation or debugging problem. Set false for routine actions that directly carry out the main task or when no separate subtask exists. Never use an issue to restate the main task or to avoid finishing and advancing main tasks.",
+      "issue": "A short, stable name for the narrower subtask; never copy or paraphrase the main task. Whenever inIssue is true, provide issue explicitly, repeating the current name when continuing the same issue. When inIssue is false, always omit it."
     }
   }
 }
