@@ -5,6 +5,7 @@ import {
   dockTodos,
   emptyLedger,
   foldLedgerEvent,
+  ledgerView,
   legacyTodos,
   writeLedger,
 } from '../src/ledger.js';
@@ -88,4 +89,75 @@ test('legacy snapshots preserve the write that first made each task active', () 
     { content: 'A', status: 'completed', startCallId: 'legacy-a', startSeq: 21 },
     { content: 'B', status: 'in_progress', startCallId: 'legacy-b', startSeq: 23 },
   ]);
+});
+
+function startedTask() {
+  const state = writeLedger(emptyLedger(), ['Task']).state;
+  return { ...state, nodes: state.nodes.map((node) => ({ ...node, status: 'in_progress' })) };
+}
+
+function issueReport(state, seq, report, callId) {
+  return foldLedgerEvent(state, {
+    type: 'todo/write',
+    seq,
+    time: seq * 100,
+    data: {
+      todos: legacyTodos(state),
+      ledger: {
+        version: LEDGER_VERSION,
+        operation: 'report',
+        taskId: 't1',
+        ...(callId === undefined ? {} : { callId }),
+        report,
+      },
+    },
+  });
+}
+
+test('report targets navigate current issue summaries and both Dock issue layouts', () => {
+  let state = startedTask();
+  state = issueReport(state, 50, { index: 1, inIssue: true, issue: 'Inspect' }, 'report-50');
+  assert.equal(state.nodes[0].reports[0].callId, 'report-50');
+  assert.deepEqual(ledgerView(state).current[0].issues, [{
+    name: 'Inspect',
+    firstSeq: 50,
+    lastSeq: 50,
+    active: true,
+    startCallId: 'report-50',
+    startSeq: 50,
+  }]);
+  assert.deepEqual(dockTodos(state), [{
+    content: 'Task',
+    status: 'in_progress',
+    issue: 'Inspect',
+    issueCallId: 'report-50',
+    issueSeq: 50,
+  }]);
+});
+
+test('older report operations recover their enclosing tool call during replay', () => {
+  let state = startedTask();
+  state = foldLedgerEvent(state, {
+    type: 'tool/call', seq: 60, time: 6000, data: { callId: 'older-report' },
+  });
+  state = issueReport(state, 61, { index: 1, inIssue: true, issue: 'Legacy target' });
+  assert.deepEqual(ledgerView(state).current[0].issues, [{
+    name: 'Legacy target',
+    firstSeq: 61,
+    lastSeq: 61,
+    active: true,
+    startCallId: 'older-report',
+    startSeq: 61,
+  }]);
+});
+
+test('legacy issue reports without a call id remain non-navigable', () => {
+  let state = startedTask();
+  state = issueReport(state, 70, { index: 1, inLocalTask: true, localTask: 'Legacy issue' });
+  assert.deepEqual(ledgerView(state).current[0].issues, [{
+    name: 'Legacy issue', firstSeq: 70, lastSeq: 70, active: true,
+  }]);
+  assert.deepEqual(dockTodos(state), [{
+    content: 'Task', status: 'in_progress', issue: 'Legacy issue',
+  }]);
 });

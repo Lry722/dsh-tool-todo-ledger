@@ -171,6 +171,7 @@ export function createLedgerTools(ctx, config) {
         appendOperation(exec, result.state, {
           operation: 'report',
           taskId: result.taskId,
+          callId: String(exec.callId),
           report: result.report,
         });
         return {};

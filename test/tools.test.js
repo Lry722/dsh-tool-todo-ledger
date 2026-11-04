@@ -100,6 +100,8 @@ test('composite writes preserve separate start, report and finish operations', a
   assert.equal(env.appended[3].data.ledger.report.inIssue, true);
   assert.equal(env.appended[3].data.ledger.report.issue, 'Local');
   assert.equal(env.appended[1].data.ledger.callId, 'call-1');
+  assert.equal(env.appended[2].data.ledger.callId, 'call-1');
+  assert.equal(env.appended[3].data.ledger.callId, 'call-1');
   const read = await env.tools.todo_read.execute({}, env.exec);
   assert.deepEqual(read.tasks, [{ index: 1, content: 'Task', status: 'completed' }]);
 });

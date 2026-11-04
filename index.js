@@ -13,6 +13,7 @@ const reportSchema = zod.object({
   index: zod.number().int(),
   inIssue: zod.boolean(),
   issue: zod.string().optional(),
+  callId: zod.string().optional(),
   seq: zod.number().optional(),
   time: zod.number().optional(),
 });
@@ -27,12 +28,15 @@ const issueViewSchema = zod.object({
   firstSeq: zod.number(),
   lastSeq: zod.number(),
   active: zod.boolean(),
+  ...navigationSchema,
 });
 
 const dockViewSchema = zod.array(zod.object({
   content: zod.string(),
   status: zod.enum(['pending', 'in_progress', 'completed']),
   issue: zod.string().optional(),
+  issueCallId: zod.string().optional(),
+  issueSeq: zod.number().optional(),
   ...navigationSchema,
 }));
 
@@ -101,7 +105,7 @@ export function apply(ctx, config) {
     init: emptyLedger,
     apply: foldLedgerEvent,
     wire: { viewSchema: todoViewSchema, view: ledgerView },
-    stateVersion: 6,
+    stateVersion: 7,
   });
   installReportReminder(ctx);
 

@@ -107,7 +107,7 @@ function activeIssue(state, taskId) {
   if (task?.status !== 'in_progress') return undefined;
   const latest = task.reports.at(-1);
   if (!latest?.inIssue || typeof latest.issue !== 'string') return undefined;
-  return { name: latest.issue, seq: latest.seq };
+  return { name: latest.issue, seq: latest.seq, callId: latest.callId };
 }
 
 export function dockTodos(state) {
@@ -122,7 +122,13 @@ export function dockTodos(state) {
       result.startSeq = task.startSeq;
     }
     const issue = activeIssue(state, id);
-    if (issue) result.issue = issue.name;
+    if (issue) {
+      result.issue = issue.name;
+      if (typeof issue.callId === 'string' && typeof issue.seq === 'number') {
+        result.issueCallId = issue.callId;
+        result.issueSeq = issue.seq;
+      }
+    }
     return result;
   });
 }
@@ -398,8 +404,10 @@ export function foldLedgerEvent(state, event) {
     const next = clone(state);
     const task = next.nodes.find((node) => node.id === operation.taskId);
     if (!task) return state;
+    const callId = typeof operation.callId === 'string' ? operation.callId : state.lastToolCallId;
     task.reports.push({
       ...normalizeReport(operation.report),
+      ...(typeof callId === 'string' ? { callId } : {}),
       seq: event.seq,
       time: event.time,
     });
@@ -407,6 +415,11 @@ export function foldLedgerEvent(state, event) {
     return next;
   }
   return state;
+}
+
+function issueNavigationFields(report) {
+  if (typeof report.callId !== 'string' || typeof report.seq !== 'number') return {};
+  return { startCallId: report.callId, startSeq: report.seq };
 }
 
 function issueSummaries(state, task, range) {
@@ -432,6 +445,9 @@ function issueSummaries(state, task, range) {
       summaries.set(name, summary);
     }
     summary.lastSeq = report.seq;
+    delete summary.startCallId;
+    delete summary.startSeq;
+    Object.assign(summary, issueNavigationFields(report));
     if (active?.name === name && active.seq === report.seq) summary.active = true;
   }
   return [...summaries.values()].sort((left, right) => left.firstSeq - right.firstSeq);

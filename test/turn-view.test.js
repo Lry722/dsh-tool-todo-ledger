@@ -55,7 +55,7 @@ function statusEvent(state, seq, operation, index) {
   });
 }
 
-function reportEvent(state, seq, index, inIssue, issue) {
+function reportEvent(state, seq, index, inIssue, issue, callId) {
   const result = reportLedger(state, index, inIssue, issue);
   return foldLedgerEvent(state, {
     type: 'todo/write',
@@ -66,6 +66,7 @@ function reportEvent(state, seq, index, inIssue, issue) {
         version: LEDGER_VERSION,
         operation: 'report',
         taskId: result.taskId,
+        ...(callId === undefined ? {} : { callId }),
         report: result.report,
       },
     },
@@ -228,6 +229,26 @@ test('leaving an issue or finishing its task only clears the active marker', () 
   state = statusEvent(state, 6, 'finish', 1);
   issues = ledgerView(state).current[0].issues;
   assert.deepEqual(issues, [{ name: 'Investigation', firstSeq: 3, lastSeq: 5, active: false }]);
+});
+
+test('issue navigation uses the latest same-name report inside each visible turn', () => {
+  let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
+  state = writeEvent(state, 2, ['Task']);
+  state = statusEvent(state, 3, 'start', 1);
+  state = reportEvent(state, 4, 1, true, 'Alpha', 'report-4');
+  state = reportEvent(state, 5, 1, true, undefined, 'report-5');
+  state = turnEvent(state, 6, 'turn/end', 1);
+  state = turnEvent(state, 7, 'turn/start', 2);
+  state = reportEvent(state, 8, 1, true, 'Alpha', 'report-8');
+  state = turnEvent(state, 9, 'turn/end', 2);
+
+  const view = ledgerView(state);
+  const target = (issue) => [issue.name, issue.lastSeq, issue.startCallId, issue.startSeq];
+  assert.deepEqual(view.current[0].issues.map(target), [['Alpha', 8, 'report-8', 8]]);
+  const first = view.turns.find((turn) => turn.turn === 1);
+  const second = view.turns.find((turn) => turn.turn === 2);
+  assert.deepEqual(first.tasks[0].issues.map(target), [['Alpha', 5, 'report-5', 5]]);
+  assert.deepEqual(second.tasks[0].issues.map(target), [['Alpha', 8, 'report-8', 8]]);
 });
 
 test('history task navigation fields survive turn snapshots and voiding', () => {
