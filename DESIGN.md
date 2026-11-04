@@ -20,7 +20,7 @@
 - **增量维护**：已完成任务只增不删，历史记录只读不可变。只有未开始或尚未完成的任务允许通过显式重排进行作废处理。
 - **原子写入**：`todo_write` 是唯一的规划与状态写入口，可在一次调用中依次完成旧任务、修改规划和启动新任务。所有操作校验成功后才追加事件，避免产生部分成功状态。
 - **显式流转**：通过 `todo_write` 的 `finish` 和 `start` 参数推进任务，不允许静默跳过任务。目标确实变化时，通过同一工具重排当前规划。
-- **执行上报**：执行具体动作的 step 必须同时调用 `todo_report`，声明当前目标及 issue 状态。漏报时，插件会在下一次模型请求前插入提示，要求补报。
+- **执行上报与硬性覆盖**：每次执行具体动作的 step 必须声明当前目标及 issue 状态。没有进行中的顶层任务、没有 `todo_report`、`todo_report` 排在动作之后，或上报未成功记录时，插件通过工具 guard 拒绝该 step 的动作工具；模型会收到明确错误并需要重新提交。仅调用 `todo_write` / `todo_read` / `todo_report` 的 step 不受此限制。
 - **两层任务结构**：任务树最大深度为 2，即“顶层任务 → issue”。处理 issue 时出现的新工作必须先提升为顶层任务，不能继续向下嵌套。
 
 ## 基本概念
@@ -57,7 +57,7 @@ issue 展示按任务与 issue 名称聚合同名上报，只区分“当前 iss
 
 本文中的 **step** 指一次 assistant step。
 
-“并行调用 `todo_report`”指模型在同一个 assistant step 中，在发起其他动作的同时一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，工具在实际运行时可以串行执行。
+“并行调用 `todo_report`”指模型在同一个 assistant step 中，在发起其他动作的同时一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，工具在实际运行时可以串行执行。覆盖校验要求 `todo_report` 在 assistant message 中排在其它动作工具之前，并且先于这些动作成功写入账本。
 
 turn 的最终回复不需要调用 `todo_report`。
 
@@ -105,7 +105,7 @@ turn 的最终回复不需要调用 `todo_report`。
 
 ### 3. `todo_report`
 
-除最终回复外，每个执行具体动作的 step 都必须调用一次 `todo_report`，上报该批动作所属的目标和 issue 状态。没有工具调用，或仅调用 `todo_write` / `todo_read` 时不需要上报。
+除最终回复外，每个执行具体动作的 step 都必须调用一次 `todo_report`，上报该批动作所属的目标和 issue 状态。没有工具调用，或仅调用 `todo_write` / `todo_read` 时不需要上报。动作工具必须排在 `todo_report` 之后；仅调用 `todo_report` 的 step 也允许，但会在没有进行中任务或参数不合法时报错。
 
 由于参数很简短，调用成本不高。直接约定每次都调用是为了避免模型忘记调用，若不约定则难以制定精确的检查规则。
 
@@ -125,9 +125,15 @@ turn 的最终回复不需要调用 `todo_report`。
   `inIssue: false` 只表示本次动作不处于 issue，不能同时提供名称，也不代表 issue 完成或关闭；此后再次传入 `true` 时需要重新提供名称。
   issue 无需显式闭合，只用于记录工作归属。切换时不关心上个 issue 是否完成。
 
-#### 缺失上报提示
+#### 覆盖校验与硬性拦截
 
-执行具体动作的 step 没有同时调用 `todo_report` 时，插件会在下一次模型请求前插入一条提示，指出上一步漏报和当前进行中的顶层任务内容，要求当前 step 补报。该提示只进入模型上下文，工具仍照常执行。
+每个 agent 注册一个工具 guard。guard 在该 step 的工具执行前读取当前 `todoLedger` 投影与该 step 的 assistant message，并对每个非豁免调用做以下校验：
+
+1. 当前规划中存在 `in_progress` 顶层任务。没有时，模型必须先通过 `todo_write` 创建并启动任务；`todo_write` / `todo_read` / `todo_report` 本身仍可调用。
+2. assistant message 中恰好有一条 `todo_report`，且排在所有动作工具之前。漏报、多报或排在动作之后都会被拒绝。
+3. 该 `todo_report` 已成功写入账本（当前任务的最新 report call ID 等于本条调用 ID）。参数错误、目标错误或未实际执行的 `todo_report` 不能为同 step 的动作授权。
+
+guard 使用 `rootCallId` 把 PTC 嵌套调用归属到外层 `run_code`，因此子工具不会绕过校验。拒绝会作为工具错误返回给模型，动作不会执行；模型修正后可在后续 step 重试。guard 是单调守卫，其他插件无法把它改回允许。最终回复 step 没有工具调用，不受影响。
 
 ## 持久化与兼容性
 
@@ -225,7 +231,7 @@ turn 的最终回复不需要调用 `todo_report`。
 - `src/ledger.js`：核心状态机与组合状态流转。
 - `src/tools.js`：Cordis 工具与历史导出。
 - `src/review.js`：独立模型审查。
-- `src/reminder.js`：漏报检测与提示注入。
+- `src/guard.js`：step 覆盖追踪、覆盖校验与工具硬性拦截。
 - `index.js`：Host 生命周期、projection 状态与 wire schema。
 - `client.js`：精简 Dock、右侧任务标签页、turn 导航和 issue 展开组件。
 - `prompts/`：模型提示词、审查请求模板以及工具与参数说明，这些内容由 `src/prompts.js` 加载。

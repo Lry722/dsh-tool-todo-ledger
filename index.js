@@ -2,7 +2,7 @@ import z from '@deepseek-ai/schemastery';
 import { z as zod } from 'zod';
 import { LEDGER_VERSION, emptyLedger, foldLedgerEvent, ledgerView } from './src/ledger.js';
 import { createLedgerTools } from './src/tools.js';
-import { installReportReminder } from './src/reminder.js';
+import { installReportGuard, installStepTracker } from './src/guard.js';
 
 export const name = 'tool-todo-ledger';
 export const inject = ['agents', 'llm', 'sessionProjections', 'tools'];
@@ -106,13 +106,14 @@ export function apply(ctx, config) {
     wire: { viewSchema: todoViewSchema, view: ledgerView },
     stateVersion: 7,
   });
-  installReportReminder(ctx);
+  const stepOf = installStepTracker(ctx);
 
   const attached = new Map();
   const attach = (agent) => {
     if (attached.has(agent)) return;
     const dispose = ctx.effect(() => agent.ctx.effect(() => {
       const registrations = createLedgerTools(ctx, config).map((tool) => agent.ctx.tools.register(tool));
+      registrations.push(installReportGuard(ctx, agent, stepOf));
       return () => {
         for (const unregister of registrations.reverse()) unregister();
       };
