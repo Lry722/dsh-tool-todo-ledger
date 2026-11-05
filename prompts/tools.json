@@ -1,9 +1,9 @@
 {
   "todo_write": {
-    "description": "记录并更新 todo list 以规划工作并展示进度。在调用任何其他工具之前，必须先通过 todo_write 创建至少一个 task；每次 todo_write 后如果没有进行中的 task，会自动 start 第一个待处理的 task，否则任何其他工具调用都会被拒绝。一旦 task 目标达成，必须明确将其 finish。若任务进行中原计划已被打乱，及时进行 reorder 修改未完成的 tasks（已完成的 tasks 不可修改）。返回值的 started 字段说明本次启动的 task。",
+    "description": "记录并更新 todo list 以规划工作并展示进度。在调用任何其他工具之前，必须先通过 todo_write 创建至少一个 task，否则任何其他工具调用都会被拒绝。一旦 task 目标达成，必须明确将其 finish。若任务进行中原计划已被打乱，及时进行 reorder 修改未完成的 tasks（已完成的 tasks 不可修改）。返回的 started 字段为修改后排在第一的 task。",
     "parameters": {
-      "finish": "标记 task 完成。下一个待处理 task 会自动 start。",
-      "todos": "要追加的新 tasks，或在设置了 reorderFrom 时作为替换的内容。仅更改 task 状态时请省略。",
+      "finish": "标记 task 完成。",
+      "todos": "要追加的新 tasks，或在设置了 reorderFrom 时作为替换的内容。仅标记 task 完成时请省略。",
       "reorderFrom": "现有 task 编号，从该编号处开始移除当前计划中未完成的 task 并追加替换 task。仅当需要重排 tasks 时提供。"
     }
   },
@@ -14,10 +14,10 @@
     }
   },
   "todo_report": {
-    "description": "上报进行中的 task 和 issue。执行动作时，在同一次回复中一并调用 todo_report，上报本批动作所属的目标和 issue。单独调用 todo_report 会被拒绝，重复调用不会。仅调用其他 todo 工具或最终回复时不需要调用。缺少上报会先收到警告，持续缺少上报将拦截动作工具。",
+    "description": "上报进行中的 task 和 issue。在调用任何其他工具时，必须同时进行 todo_report，否则任何其他工具调用都会被拒绝，调用仅包含 todo 工具或最终回复时例外。",
     "parameters": {
       "index": "进行中 task 的编号。",
-      "inIssue": "在执行当前任务时，只要遇到一个计划外的多步骤临时问题，就输出 true，且处理问题期间持续输出 true。包括但不限于测试失败、缺陷定位、环境问题、资料查找等。若正在精确执行当前任务，没有额外问题，则输出 false。",
+      "inIssue": "在执行当前任务时，只要遇到一个计划外的多步骤临时问题，就应当输出 true，且处理问题期间持续输出 true。包括但不限于测试失败、缺陷定位、环境问题、资料查找等。若正在精确执行当前任务，没有额外问题，则输出 false。",
       "issue": "遇到的新问题的描述，inIssue 切换到 true 时必须提供，之后应当省略（延续上次提供的问题）。若遇到的问题远超出当前 task 范畴，则应当调用 todo_write 进行 reorder 而不是视作 issue，例如测试时遇到了问题需要修复，或是要新增测试内容，诸如此类情况则应当重排 tasks。"
     }
   }
