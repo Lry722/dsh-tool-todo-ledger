@@ -36,6 +36,7 @@ function requireModule(name) {
 
 function createContext(sessionId, instance) {
   const registrations = [];
+  const loaded = [];
   const effect = (callback) => {
     const dispose = callback();
     return typeof dispose === 'function' ? dispose : () => {};
@@ -46,6 +47,7 @@ function createContext(sessionId, instance) {
   };
   return {
     registrations,
+    loaded,
     effect,
     locale: {
       register: () => () => {},
@@ -56,7 +58,7 @@ function createContext(sessionId, instance) {
       whileServed: (_namespaces, callback) => callback(),
     },
     sessions: {
-      binding: () => ({ session: { loadThrough: async () => {} } }),
+      binding: () => ({ session: { loadThrough: async (seq) => { loaded.push(seq); } } }),
     },
     sidebarRightTabs: { register: () => () => {} },
     slots: {
@@ -100,7 +102,8 @@ test('a trajectory jump focuses the requested tool call through the session view
   const ctx = createContext('session-1', instance);
   const dock = dockFor(ctx);
 
-  assert.equal(await dock.openTodoStart('session-1', { startCallId: 'call-1' }), true);
+  assert.equal(await dock.openTodoStart('session-1', { startCallId: 'call-1', startSeq: 7 }), true);
+  assert.deepEqual(ctx.loaded, [7]);
   assert.deepEqual(calls, [['trajectory', 'call-1']]);
 });
 
