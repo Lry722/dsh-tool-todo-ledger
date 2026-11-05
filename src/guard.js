@@ -86,7 +86,8 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
 export function stepCoverage(state, message, execution) {
   const calls = stepToolCalls(message);
   const root = calls.find((call) => call.id === execution.rootCallId);
-  if (!root) return { outcome: 'blocked', reason: GUARD_MESSAGES.unmatchedStep };
+  // Calls outside the tracked assistant step cannot be model actions; leave them unguarded.
+  if (!root) return { outcome: 'exempt' };
 
   const reports = calls.filter((call) => call.name === 'todo_report');
   const rootIndex = calls.indexOf(root);

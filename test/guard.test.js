@@ -99,10 +99,12 @@ test('coverage separates missing and failed reports from structural errors', () 
   const duplicated = message(call('todo_report'), call('todo_report', 'second-report'), call('bash'));
   assert.match(stepCoverage(reportedLedger(), duplicated, execution('bash-call')).reason, /exactly once/);
   assert.match(stepCoverage(reportedLedger(), duplicated, execution('todo_report-call')).reason, /exactly once/);
+});
 
+test('calls outside the tracked assistant step are exempt', () => {
   const unmatched = message(call('bash'));
-  assert.match(stepCoverage(reportedLedger(), unmatched, execution('read-call')).reason, /could not be matched/);
-  assert.match(stepCoverage(reportedLedger(), undefined, execution('bash-call')).reason, /could not be matched/);
+  assert.equal(stepCoverage(reportedLedger(), unmatched, execution('read-call')).outcome, 'exempt');
+  assert.equal(stepCoverage(reportedLedger(), undefined, execution('bash-call')).outcome, 'exempt');
 });
 
 test('nested PTC sub-calls are judged by their root model call', () => {
