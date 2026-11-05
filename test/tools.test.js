@@ -97,7 +97,7 @@ test('review warnings are returned while technical failures stay invisible', asy
 
 test('composite writes preserve separate start, report and finish operations', async () => {
   const env = harness();
-  const created = await env.tools.todo_write.execute({ todos: ['Task'], start: 1 }, env.exec);
+  const created = await env.tools.todo_write.execute({ todos: ['Task'] }, env.exec);
   assert.deepEqual(created.started, { content: 'Task' });
   const reported = await env.tools.todo_report.execute({ index: 1, inIssue: true, issue: 'Local' }, env.exec);
   const maintained = await env.tools.todo_report.execute({ index: 1, inIssue: true }, env.exec);
@@ -117,11 +117,11 @@ test('composite writes preserve separate start, report and finish operations', a
   assert.deepEqual(read.tasks, [{ index: 1, content: 'Task', status: 'completed' }]);
 });
 
-test('finish and start share one call without triggering plan review', async () => {
+test('finish auto-starts the next task without triggering plan review', async () => {
   const env = harness({ enabled: true, instructions: ['Plan carefully.'] });
-  await env.tools.todo_write.execute({ todos: ['One', 'Two'], start: 1 }, env.exec);
+  await env.tools.todo_write.execute({ todos: ['One', 'Two'] }, env.exec);
   assert.equal(env.reviewCalls(), 1);
-  const result = await env.tools.todo_write.execute({ finish: 1, start: 2 }, env.exec);
+  const result = await env.tools.todo_write.execute({ finish: 1 }, env.exec);
   assert.equal(env.reviewCalls(), 1);
   assert.deepEqual(result, {
     finished: { content: 'One' },
@@ -140,8 +140,8 @@ test('finish and start share one call without triggering plan review', async () 
 
 test('reorder auto-starts the first pending task', async () => {
   const env = harness();
-  await env.tools.todo_write.execute({ todos: ['One', 'Two', 'Three'], start: 1 }, env.exec);
-  await env.tools.todo_write.execute({ finish: 1, start: 2 }, env.exec);
+  await env.tools.todo_write.execute({ todos: ['One', 'Two', 'Three'] }, env.exec);
+  await env.tools.todo_write.execute({ finish: 1 }, env.exec);
   const result = await env.tools.todo_write.execute({
     reorderFrom: 2,
     todos: ['Replacement', 'Later'],
@@ -168,11 +168,11 @@ test('reorder auto-starts the first pending task', async () => {
 
 test('a failed composite call appends no partial operations', async () => {
   const env = harness();
-  await env.tools.todo_write.execute({ todos: ['One', 'Two'], start: 1 }, env.exec);
+  await env.tools.todo_write.execute({ todos: ['One', 'Two'] }, env.exec);
   const eventCount = env.appended.length;
   await assert.rejects(
-    env.tools.todo_write.execute({ finish: 1, start: 3 }, env.exec),
-    /task index must be between/,
+    env.tools.todo_write.execute({ finish: 1, reorderFrom: 3 }, env.exec),
+    /reorderFrom must be an existing/,
   );
   assert.equal(env.appended.length, eventCount);
   const read = await env.tools.todo_read.execute({}, env.exec);
@@ -200,7 +200,8 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
   assert.match(TOOL_PROMPTS.todo_write.description, /一旦 task 目标达成，必须明确将其 finish/);
   assert.match(TOOL_PROMPTS.todo_write.description, /及时进行 reorder 修改未完成的 tasks/);
   assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /下一个待处理 task 会自动 start/);
-  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /插件会自动启动第一个待处理的 task/);
+  assert.equal(Object.hasOwn(TOOL_PROMPTS.todo_write.parameters, 'start'), false);
+  assert.equal(Object.hasOwn(tools.todo_write.parameters, 'start'), false);
   assert.match(TOOL_PROMPTS.todo_report.description, /在同一次回复中一并调用 todo_report/);
   assert.match(TOOL_PROMPTS.todo_report.description, /单独调用 todo_report 会被拒绝/);
   assert.match(TOOL_PROMPTS.todo_report.description, /重复调用不会/);

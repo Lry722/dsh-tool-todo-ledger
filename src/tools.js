@@ -83,10 +83,6 @@ export function createLedgerTools(ctx, config) {
           type: 'integer',
           description: TOOL_PROMPTS.todo_write.parameters.finish,
         },
-        start: {
-          type: 'integer',
-          description: TOOL_PROMPTS.todo_write.parameters.start,
-        },
       },
       output: { schema: OUTPUT_SCHEMA, render: textOutput },
       async execute(args, exec) {

@@ -4,8 +4,7 @@
     "parameters": {
       "finish": "标记 task 完成。下一个待处理 task 会自动 start。",
       "todos": "要追加的新 tasks，或在设置了 reorderFrom 时作为替换的内容。仅更改 task 状态时请省略。",
-      "reorderFrom": "现有 task 编号，从该编号处开始移除当前计划中未完成的 task 并追加替换 task。仅当需要重排 tasks 时提供。",
-      "start": "显式标记 task 开始。插件会自动启动第一个待处理的 task，通常无需提供。"
+      "reorderFrom": "现有 task 编号，从该编号处开始移除当前计划中未完成的 task 并追加替换 task。仅当需要重排 tasks 时提供。"
     }
   },
   "todo_read": {

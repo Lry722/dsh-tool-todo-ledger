@@ -229,7 +229,7 @@ function firstPendingIndex(state) {
 }
 
 export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
-  const { todos, reorderFrom, finish, start } = args;
+  const { todos, reorderFrom, finish } = args;
   let next = state;
   let finished;
   let write;
@@ -261,15 +261,7 @@ export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
     });
   }
 
-  if (start !== undefined) {
-    const result = startLedger(next, start);
-    next = result.state;
-    started = { index: start, taskId: result.taskId, status: 'in_progress' };
-    operations.push({
-      state: next,
-      ledger: { operation: 'start', taskId: result.taskId },
-    });
-  } else if (!hasInProgress(next)) {
+  if (!hasInProgress(next)) {
     const index = firstPendingIndex(next);
     if (index > 0) {
       const result = startLedger(next, index);

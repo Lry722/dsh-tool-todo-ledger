@@ -64,7 +64,7 @@ test('finish auto-starts the next pending task', () => {
   ]);
 });
 
-test('composite updates finish, reorder and start in a fixed order', () => {
+test('composite updates finish and reorder in a fixed order', () => {
   let state = writeLedger(emptyLedger(), ['Confirm', 'Implement', 'Test', 'Document']).state;
   state = startLedger(state, 1).state;
   state = finishLedger(state, 1).state;
@@ -73,7 +73,6 @@ test('composite updates finish, reorder and start in a fixed order', () => {
     finish: 2,
     reorderFrom: 3,
     todos: ['Test replacement', 'Write documentation'],
-    start: 3,
   });
 
   assert.deepEqual(result.operations.map((operation) => operation.ledger.operation), ['finish', 'write', 'start']);
@@ -89,8 +88,8 @@ test('composite updates finish, reorder and start in a fixed order', () => {
 test('composite updates validate fully without mutating the input state', () => {
   const state = startLedger(planned(), 1).state;
   const before = structuredClone(state);
-  assert.throws(() => updateLedger(state, { finish: 1, start: 4 }), /task index must be between/);
-  assert.throws(() => updateLedger(state, {}), /provide todos, reorderFrom, finish, or start/);
+  assert.throws(() => updateLedger(state, { finish: 4 }), /task index must be between/);
+  assert.throws(() => updateLedger(state, {}), /provide todos, reorderFrom, or finish/);
   assert.deepEqual(state, before);
 
   const removed = updateLedger(state, { reorderFrom: 2 });
