@@ -86,6 +86,15 @@ test('todo_report must accompany an action tool but need not lead it', () => {
   }
 });
 
+test('a report may share a step with a plan write', () => {
+  for (const step of [
+    message(call('todo_report'), call('todo_write')),
+    message(call('todo_write'), call('todo_report')),
+  ]) {
+    assert.equal(stepCoverage(undefined, step, execution('todo_report-call')).outcome, 'exempt');
+  }
+});
+
 test('work requires an in-progress main task', () => {
   const step = message(call('todo_report'), call('bash'));
   assert.match(stepCoverage(emptyLedger(), step, execution('bash-call')).reason, /没有进行中的任务/);
