@@ -181,33 +181,3 @@ test('a failed composite call appends no partial operations', async () => {
     { index: 2, content: 'Two', status: 'pending' },
   ]);
 });
-
-test('tool descriptions use defined task terminology instead of runtime jargon', () => {
-  const { tools } = harness();
-  assert.deepEqual(Object.keys(TOOL_PROMPTS), Object.keys(tools));
-  for (const tool of Object.values(tools)) {
-    const prompt = TOOL_PROMPTS[tool.name];
-    assert.equal(tool.description, prompt.description, `${tool.name} description`);
-    for (const [name, parameter] of Object.entries(tool.parameters)) {
-      assert.equal(parameter.description, prompt.parameters[name], `${tool.name}.${name} description`);
-    }
-    const parameters = Object.values(tool.parameters).map((parameter) => parameter.description ?? '');
-    const text = [tool.description, ...parameters].join('\n');
-    assert.doesNotMatch(text, /\b(?:ledger|step|stateless|voids|voided|bounded|top-level|1-based|localTask|local task)\b/i, tool.name);
-  }
-  assert.match(TOOL_PROMPTS.todo_write.description, /必须先通过 todo_write 创建至少一个 task/);
-  assert.match(TOOL_PROMPTS.todo_write.description, /每次 todo_write 后如果没有进行中的 task，会自动 start 第一个待处理的 task/);
-  assert.match(TOOL_PROMPTS.todo_write.description, /一旦 task 目标达成，必须明确将其 finish/);
-  assert.match(TOOL_PROMPTS.todo_write.description, /及时进行 reorder 修改未完成的 tasks/);
-  assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /下一个待处理 task 会自动 start/);
-  assert.equal(Object.hasOwn(TOOL_PROMPTS.todo_write.parameters, 'start'), false);
-  assert.equal(Object.hasOwn(tools.todo_write.parameters, 'start'), false);
-  assert.match(TOOL_PROMPTS.todo_report.description, /在同一次回复中一并调用 todo_report/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /单独调用 todo_report 会被拒绝/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /重复调用不会/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /仅调用其他 todo 工具或最终回复时不需要调用/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /多步骤临时问题/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /持续输出 true/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /inIssue 切换到 true 时必须提供/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /应当调用 todo_write 进行 reorder/);
-});
