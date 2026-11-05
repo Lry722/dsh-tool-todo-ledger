@@ -1,10 +1,13 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
+import { GUARD_MESSAGES, fillPrompt } from './prompts.js';
 
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
 
-function blocked(reason) {
-  return `Blocked: ${reason}`;
+function blockReason(key, values) {
+  return fillPrompt(GUARD_MESSAGES.blockedPrefix, {
+    reason: fillPrompt(GUARD_MESSAGES[key], values),
+  });
 }
 
 export function stepToolCalls(message) {
@@ -66,10 +69,10 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
       roundStarted = true;
       const granted = budget;
       remaining = Math.max(0, granted - 1);
-      const steps = granted === 1 ? 'step is' : 'steps are';
+      const template = granted === 1 ? GUARD_MESSAGES.coverageWarning.one : GUARD_MESSAGES.coverageWarning.many;
       return {
         allowed: true,
-        warning: `Todo coverage warning: this step has no successful todo_report. ${granted} exempt ${steps} granted for this round (${remaining} remaining); report within them to reset the budget. The step continues the last recorded report.`,
+        warning: fillPrompt(template, { granted, remaining }),
       };
     },
   };
@@ -89,16 +92,16 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
 export function stepCoverage(state, message, execution) {
   const calls = stepToolCalls(message);
   const root = calls.find((call) => call.id === execution.rootCallId);
-  if (!root) return { outcome: 'blocked', reason: blocked('this call could not be matched to the assistant step that requested it. Retry the step.') };
+  if (!root) return { outcome: 'blocked', reason: blockReason('unmatchedStep') };
 
   const reports = calls.filter((call) => call.name === 'todo_report');
   const rootIndex = calls.indexOf(root);
 
   if (root.name === 'todo_report') {
-    if (reports.length !== 1) return { outcome: 'blocked', reason: blocked('a step may call todo_report exactly once.') };
+    if (reports.length !== 1) return { outcome: 'blocked', reason: blockReason('duplicateReport') };
     const firstWork = calls.findIndex((call) => !EXEMPT_TOOLS.has(call.name));
     if (firstWork !== -1 && firstWork < rootIndex) {
-      return { outcome: 'blocked', reason: blocked('todo_report must precede the other tool calls in the same step.') };
+      return { outcome: 'blocked', reason: blockReason('lateReport') };
     }
     return { outcome: 'exempt' };
   }
@@ -107,12 +110,12 @@ export function stepCoverage(state, message, execution) {
 
   const task = inProgressTask(state);
   if (!task) {
-    return { outcome: 'blocked', reason: blocked('no main task is in progress. Create and start one, then retry this step with todo_report before the other tool calls.') };
+    return { outcome: 'blocked', reason: blockReason('noActiveTask') };
   }
-  if (reports.length > 1) return { outcome: 'blocked', reason: blocked('a step may call todo_report exactly once.') };
+  if (reports.length > 1) return { outcome: 'blocked', reason: blockReason('duplicateReport') };
   if (reports.length === 0) return { outcome: 'uncovered', coverage: 'missing' };
   if (calls.indexOf(reports[0]) > rootIndex) {
-    return { outcome: 'blocked', reason: blocked('todo_report must precede the other tool calls in the same step.') };
+    return { outcome: 'blocked', reason: blockReason('lateReport') };
   }
   if (!reportRecorded(task, String(reports[0].id))) return { outcome: 'uncovered', coverage: 'failed' };
   return { outcome: 'covered' };
@@ -177,7 +180,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
     if (coverage.outcome === 'covered') return undefined;
     const admission = budget.admit();
     if (!admission.allowed) {
-      return blocked('todo coverage budget is exhausted. Report the active task with todo_report before the other tool calls, then retry this step.');
+      return blockReason('budgetExhausted');
     }
     if (coverage.coverage === 'missing' && admission.warning !== undefined) steerCoverageWarning(guardedAgent, admission.warning);
     return undefined;
@@ -197,7 +200,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       }
       return observedDecision;
     } catch {
-      return blocked('this step could not be verified against the todo plan. Retry after the todo state is available.');
+      return blockReason('verificationUnavailable');
     }
   });
 }

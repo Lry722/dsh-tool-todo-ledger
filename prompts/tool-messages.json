@@ -1,0 +1,9 @@
+{
+  "requiresAgent": "{{tool}} requires an owning agent session",
+  "projectionUnavailable": "{{tool}}: todoLedger projection is unavailable",
+  "presentation": {
+    "todo_write": "Update todo tasks",
+    "todo_read": "Read todo tasks",
+    "todo_report": "Report todo progress"
+  }
+}

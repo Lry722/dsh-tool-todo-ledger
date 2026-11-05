@@ -12,7 +12,7 @@ import {
   updateLedger,
 } from './ledger.js';
 import { reviewTodoWrite } from './review.js';
-import { TOOL_PROMPTS, reviewResult } from './prompts.js';
+import { TOOL_MESSAGES, TOOL_PROMPTS, fillPrompt, reviewResult } from './prompts.js';
 
 const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
 
@@ -24,10 +24,14 @@ function presentation(title, kind = 'other') {
   return (args) => ({ card: 'generic', title, kind, rawInput: args });
 }
 
+function toolMessage(key, values) {
+  return fillPrompt(TOOL_MESSAGES[key], values);
+}
+
 function owningState(ctx, exec, toolName) {
-  if (!exec.agent) throw new Error(`${toolName} requires an owning agent session`);
+  if (!exec.agent) throw new Error(toolMessage('requiresAgent', { tool: toolName }));
   const state = ctx.sessionProjections.stateOf(exec.agent.session, 'todoLedger');
-  if (!state) throw new Error(`${toolName}: todoLedger projection is unavailable`);
+  if (!state) throw new Error(toolMessage('projectionUnavailable', { tool: toolName }));
   return state;
 }
 
@@ -126,7 +130,7 @@ export function createLedgerTools(ctx, config) {
           ...(review ? { review } : {}),
         };
       },
-      presentCall: presentation('Update todo tasks', 'edit'),
+      presentCall: presentation(TOOL_MESSAGES.presentation.todo_write, 'edit'),
     }),
     defineTool({
       name: 'todo_read',
@@ -139,11 +143,11 @@ export function createLedgerTools(ctx, config) {
       },
       output: { schema: OUTPUT_SCHEMA, render: textOutput },
       async execute(args, exec) {
-        if (!exec.agent) throw new Error('todo_read requires an owning agent session');
+        if (!exec.agent) throw new Error(toolMessage('requiresAgent', { tool: 'todo_read' }));
         if (args.full === true) return exportHistory(ctx, exec.agent);
         return currentView(owningState(ctx, exec, 'todo_read'));
       },
-      presentCall: presentation('Read todo tasks', 'read'),
+      presentCall: presentation(TOOL_MESSAGES.presentation.todo_read, 'read'),
     }),
     defineTool({
       name: 'todo_report',
@@ -180,7 +184,7 @@ export function createLedgerTools(ctx, config) {
         });
         return {};
       },
-      presentCall: presentation('Report todo progress'),
+      presentCall: presentation(TOOL_MESSAGES.presentation.todo_report),
     }),
   ];
 }

@@ -1,0 +1,13 @@
+{
+  "blockedPrefix": "Blocked: {{reason}}",
+  "unmatchedStep": "this call could not be matched to the assistant step that requested it. Retry the step.",
+  "duplicateReport": "a step may call todo_report exactly once.",
+  "lateReport": "todo_report must precede the other tool calls in the same step.",
+  "noActiveTask": "no main task is in progress. Create and start one, then retry this step with todo_report before the other tool calls.",
+  "budgetExhausted": "todo coverage budget is exhausted. Report the active task with todo_report before the other tool calls, then retry this step.",
+  "verificationUnavailable": "this step could not be verified against the todo plan. Retry after the todo state is available.",
+  "coverageWarning": {
+    "one": "Todo coverage warning: this step has no successful todo_report. {{granted}} exempt step is granted for this round ({{remaining}} remaining); report within them to reset the budget. The step continues the last recorded report.",
+    "many": "Todo coverage warning: this step has no successful todo_report. {{granted}} exempt steps are granted for this round ({{remaining}} remaining); report within them to reset the budget. The step continues the last recorded report."
+  }
+}

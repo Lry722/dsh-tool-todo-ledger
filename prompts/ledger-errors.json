@@ -1,0 +1,20 @@
+{
+  "taskRequired": "todo_write: every task must be a non-empty string",
+  "todosArray": "todo_write: `todos` must be an array",
+  "taskUnique": "todo_write: new task descriptions must be unique",
+  "taskIndexRange": "{{tool}}: task index must be between 1 and {{count}}",
+  "planInconsistent": "{{tool}}: current plan is inconsistent at task {{index}}",
+  "appendTaskRequired": "todo_write: append requires at least one task",
+  "reorderRange": "todo_write: reorderFrom must be an existing 1-based task index (1-{{count}})",
+  "reorderNoop": "todo_write: this reorder would not change the plan",
+  "startNotPending": "todo_write: start task {{index}} is {{status}}, not pending",
+  "startBlocked": "todo_write: finish earlier task {{previous}} before starting task {{index}}",
+  "finishNotActive": "todo_write: finish task {{index}} is {{status}}, not in_progress",
+  "operationRequired": "todo_write: provide todos, reorderFrom, finish, or start",
+  "inIssueBoolean": "todo_report: `inIssue` must be a boolean",
+  "issueString": "todo_report: `issue` must be a non-empty string",
+  "issueRequired": "todo_report: `issue` is required when entering an issue",
+  "issueOmitted": "todo_report: omit `issue` when `inIssue` is false",
+  "reportInactiveTask": "todo_report: task {{index}} is {{status}}, start it before reporting work",
+  "reportSwitchBlocked": "todo_report: finish the previous task before switching goals, or explicitly reorder the plan"
+}

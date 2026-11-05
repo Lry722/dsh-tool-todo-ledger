@@ -1,3 +1,5 @@
 {
-  "warning": "AGENTS.md review warning: {{message}}"
+  "passed": "No AGENTS.md violation found.",
+  "warning": "AGENTS.md review warning: {{message}}",
+  "noInstructions": "No active AGENTS.md instructions to review."
 }

@@ -179,17 +179,15 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
     const text = [tool.description, ...parameters].join('\n');
     assert.doesNotMatch(text, /\b(?:ledger|step|stateless|voids|voided|bounded|top-level|1-based|localTask|local task)\b/i, tool.name);
   }
-  assert.match(TOOL_PROMPTS.todo_write.description, /Issue reports never complete or advance main tasks/);
-  assert.match(TOOL_PROMPTS.todo_write.description, /finish for the current task and start for the next task in the same call/);
-  assert.match(TOOL_PROMPTS.todo_write.description, /rejected until one is in progress/);
-  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /instead of using start alone/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /in that same assistant message/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /Do not send todo_report alone in an earlier message/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /distinct, narrower subtask/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /Never use an issue to restate the main task/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /provide issue when entering or changing an issue/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /re-entering after inIssue:false/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /Omit it only while continuing the same active issue in the same main task/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /do not repeat it on every report/);
-  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /never copy or paraphrase the main task/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /必须先创建并 start 至少一个 task/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /一旦 task 目标达成，必须明确将其 finish/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /及时进行 reorder 修改未完成的 tasks/);
+  assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /finish 和 start 应当尽量成对进行/);
+  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /上一个进行中的 task 必须已完成/);
+  assert.match(TOOL_PROMPTS.todo_report.description, /必须同时进行 todo_report/);
+  assert.match(TOOL_PROMPTS.todo_report.description, /仅调用其他 todo 工具或最终回复时例外/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /多步骤临时问题/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /持续输出 true/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /inIssue 切换到 true 时必须提供/);
+  assert.match(TOOL_PROMPTS.todo_report.parameters.issue, /应当调用 todo_write 进行 reorder/);
 });

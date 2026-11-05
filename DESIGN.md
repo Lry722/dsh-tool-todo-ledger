@@ -241,6 +241,7 @@ guard 使用 `rootCallId` 把 PTC 嵌套调用归属到外层 `run_code`，因�
 - `src/tools.js`：Cordis 工具与历史导出。
 - `src/review.js`：独立模型审查。
 - `src/guard.js`：step 覆盖追踪、覆盖校验与工具硬性拦截。
+- `src/prompts.js`：加载提示词资源并填充模板占位符。
 - `index.js`：Host 生命周期、projection 状态与 wire schema。
 - `client.js`：精简 Dock、右侧任务标签页、turn 导航和 issue 展开组件。
-- `prompts/`：模型提示词、审查请求模板以及工具与参数说明，这些内容由 `src/prompts.js` 加载。
+- `prompts/`：模型提示词、工具与参数说明、审查请求模板，以及守卫拦截、steer 警告和账本校验等运行文案。

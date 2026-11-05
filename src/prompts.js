@@ -1,20 +1,39 @@
 import { readFileSync } from 'node:fs';
 
-function loadPrompt(name) {
+function loadMarkdown(name) {
   return readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 }
 
-export const REVIEW_POLICY = loadPrompt('review-policy');
-export const TOOL_PROMPTS = JSON.parse(readFileSync(new URL('../prompts/tools.json', import.meta.url), 'utf8'));
-const REVIEW_REQUEST = loadPrompt('review-request');
-const REVIEW_RESULTS = JSON.parse(readFileSync(new URL('../prompts/review-results.json', import.meta.url), 'utf8'));
+function loadJson(name) {
+  return JSON.parse(readFileSync(new URL(`../prompts/${name}.json`, import.meta.url), 'utf8'));
+}
+
+export function fillPrompt(template, values = {}) {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key) => (
+    Object.hasOwn(values, key) ? String(values[key]) : match
+  ));
+}
+
+export const REVIEW_POLICY = loadMarkdown('review-policy');
+export const TOOL_PROMPTS = loadJson('tools');
+export const GUARD_MESSAGES = loadJson('guard-messages');
+export const LEDGER_MESSAGES = loadJson('ledger-errors');
+export const TOOL_MESSAGES = loadJson('tool-messages');
+const REVIEW_REQUEST = loadMarkdown('review-request');
+const REVIEW_RESULTS = loadJson('review-results');
+const REVIEW_ERRORS = loadJson('review-errors');
 
 export function reviewResult(kind, message) {
-  return REVIEW_RESULTS[kind].replace('{{message}}', () => message);
+  return fillPrompt(REVIEW_RESULTS[kind], message === undefined ? {} : { message });
+}
+
+export function reviewError(kind, values) {
+  return new Error(fillPrompt(REVIEW_ERRORS[kind], values));
 }
 
 export function reviewRequest(instructions, pending) {
-  return REVIEW_REQUEST.replace(/\{\{(instructions|todoWrite)\}\}/g, (_match, key) => (
-    JSON.stringify(key === 'instructions' ? instructions : pending, null, 2)
-  ));
+  return fillPrompt(REVIEW_REQUEST, {
+    instructions: JSON.stringify(instructions, null, 2),
+    todoWrite: JSON.stringify(pending, null, 2),
+  });
 }

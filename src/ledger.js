@@ -1,5 +1,11 @@
+import { LEDGER_MESSAGES, fillPrompt } from './prompts.js';
+
 export const LEDGER_VERSION = 1;
 export const TODO_STATUSES = ['pending', 'in_progress', 'completed'];
+
+function ledgerError(key, values) {
+  return new Error(fillPrompt(LEDGER_MESSAGES[key], values));
+}
 
 export function emptyLedger() {
   return {
@@ -71,26 +77,26 @@ function normalizeReport(report) {
 
 function contentOf(value) {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error('todo_write: every task must be a non-empty string');
+    throw ledgerError('taskRequired');
   }
   return value.trim();
 }
 
 export function normalizeTasks(values) {
-  if (!Array.isArray(values)) throw new Error('todo_write: `todos` must be an array');
+  if (!Array.isArray(values)) throw ledgerError('todosArray');
   const tasks = values.map(contentOf);
   const unique = new Set(tasks);
-  if (unique.size !== tasks.length) throw new Error('todo_write: new task descriptions must be unique');
+  if (unique.size !== tasks.length) throw ledgerError('taskUnique');
   return tasks;
 }
 
 export function taskAt(state, index, toolName) {
   if (!Number.isInteger(index) || index < 1 || index > state.currentIds.length) {
-    throw new Error(`${toolName}: task index must be between 1 and ${state.currentIds.length}`);
+    throw ledgerError('taskIndexRange', { tool: toolName, count: state.currentIds.length });
   }
   const id = state.currentIds[index - 1];
   const task = state.nodes.find((node) => node.id === id);
-  if (!task) throw new Error(`${toolName}: current plan is inconsistent at task ${index}`);
+  if (!task) throw ledgerError('planInconsistent', { tool: toolName, index });
   return { id, task };
 }
 
@@ -136,9 +142,9 @@ export function dockTodos(state) {
 export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time: 0 }) {
   const tasks = normalizeTasks(rawTasks);
   const reorder = reorderFrom !== undefined;
-  if (!reorder && tasks.length === 0) throw new Error('todo_write: append requires at least one task');
+  if (!reorder && tasks.length === 0) throw ledgerError('appendTaskRequired');
   if (reorder && (!Number.isInteger(reorderFrom) || reorderFrom < 1 || reorderFrom > state.currentIds.length)) {
-    throw new Error(`todo_write: reorderFrom must be an existing 1-based task index (1-${state.currentIds.length})`);
+    throw ledgerError('reorderRange', { count: state.currentIds.length });
   }
 
   const next = clone(state);
@@ -153,7 +159,7 @@ export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time:
       invalidated.push({ oldIndex: index + 1, id, content: oldTask.content, status: oldTask.status });
     }
     if (invalidatedIds.length === 0 && tasks.length === 0) {
-      throw new Error('todo_write: this reorder would not change the plan');
+      throw ledgerError('reorderNoop');
     }
     const discarded = new Set(invalidatedIds);
     next.currentIds = next.currentIds.filter((id) => !discarded.has(id));
@@ -192,11 +198,11 @@ export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time:
 
 export function startLedger(state, index) {
   const { id, task } = taskAt(state, index, 'todo_write');
-  if (task.status !== 'pending') throw new Error(`todo_write: start task ${index} is ${task.status}, not pending`);
+  if (task.status !== 'pending') throw ledgerError('startNotPending', { index, status: task.status });
   for (let previous = 0; previous < index - 1; previous += 1) {
     const previousTask = state.nodes.find((node) => node.id === state.currentIds[previous]);
     if (previousTask.status !== 'completed') {
-      throw new Error(`todo_write: finish earlier task ${previous + 1} before starting task ${index}`);
+      throw ledgerError('startBlocked', { previous: previous + 1, index });
     }
   }
   const next = clone(state);
@@ -207,7 +213,7 @@ export function startLedger(state, index) {
 export function finishLedger(state, index) {
   const { id, task } = taskAt(state, index, 'todo_write');
   if (task.status !== 'in_progress') {
-    throw new Error(`todo_write: finish task ${index} is ${task.status}, not in_progress`);
+    throw ledgerError('finishNotActive', { index, status: task.status });
   }
   const next = clone(state);
   next.nodes.find((node) => node.id === id).status = 'completed';
@@ -258,35 +264,35 @@ export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
   }
 
   if (operations.length === 0) {
-    throw new Error('todo_write: provide todos, reorderFrom, finish, or start');
+    throw ledgerError('operationRequired');
   }
   return { state: next, operations, finished, write, started };
 }
 
 export function reportLedger(state, index, inIssue, rawIssue) {
   const { id, task } = taskAt(state, index, 'todo_report');
-  if (typeof inIssue !== 'boolean') throw new Error('todo_report: `inIssue` must be a boolean');
+  if (typeof inIssue !== 'boolean') throw ledgerError('inIssueBoolean');
   if (rawIssue !== undefined && (typeof rawIssue !== 'string' || rawIssue.trim().length === 0)) {
-    throw new Error('todo_report: `issue` must be a non-empty string');
+    throw ledgerError('issueString');
   }
   let issue = rawIssue?.trim();
   if (inIssue && issue === undefined) {
     const previous = state.lastReportTaskId === id ? task.reports.at(-1) : undefined;
     if (previous?.inIssue !== true || typeof previous.issue !== 'string') {
-      throw new Error('todo_report: `issue` is required when entering an issue');
+      throw ledgerError('issueRequired');
     }
     issue = previous.issue;
   }
   if (!inIssue && issue !== undefined) {
-    throw new Error('todo_report: omit `issue` when `inIssue` is false');
+    throw ledgerError('issueOmitted');
   }
   if (task.status !== 'in_progress') {
-    throw new Error(`todo_report: task ${index} is ${task.status}, start it before reporting work`);
+    throw ledgerError('reportInactiveTask', { index, status: task.status });
   }
   if (state.lastReportTaskId !== null && state.lastReportTaskId !== id) {
     const previous = state.nodes.find((node) => node.id === state.lastReportTaskId);
     if (previous && previous.status !== 'completed') {
-      throw new Error('todo_report: finish the previous task before switching goals, or explicitly reorder the plan');
+      throw ledgerError('reportSwitchBlocked');
     }
   }
   const report = { index, inIssue, ...(issue === undefined ? {} : { issue }) };
