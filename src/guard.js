@@ -75,11 +75,11 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
 /**
  * Classify one tool execution against the current todo plan.
  * A work step needs an in-progress main task and a `todo_report` somewhere in
- * the same assistant message. Report position and count are not enforced: a
- * report that appears after the guarded action has not run yet, so the action is
- * admitted provisionally and later steps judge whether it was recorded. Missing
- * or failed reports are exemptible; plans without an active task stay hard
- * violations.
+ * the same assistant message. Report position and count are tolerated: a report
+ * that appears after the guarded action has not run yet, so the action is
+ * admitted provisionally and later steps judge whether it was recorded. A report
+ * without any action tool is still rejected; missing or failed reports are
+ * exemptible, and plans without an active task stay hard violations.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's tool calls.
  * @param execution - the execution being guarded; `rootCallId` identifies the
@@ -92,8 +92,13 @@ export function stepCoverage(state, message, execution) {
   // Calls outside the tracked assistant step cannot be model actions; leave them unguarded.
   if (!root) return { outcome: 'exempt' };
 
-  // Reporting tools never block each other: standalone or repeated reports are tolerated.
-  if (EXEMPT_TOOLS.has(root.name)) return { outcome: 'exempt' };
+  if (EXEMPT_TOOLS.has(root.name)) {
+    // A report must accompany real work; reporting alone only doubles requests.
+    if (root.name === 'todo_report' && !calls.some((call) => !EXEMPT_TOOLS.has(call.name))) {
+      return { outcome: 'blocked', reason: GUARD_MESSAGES.standaloneReport };
+    }
+    return { outcome: 'exempt' };
+  }
 
   const task = inProgressTask(state);
   if (!task) {
@@ -202,11 +207,15 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
 
   return agent.ctx.tools.guard((execution) => {
     if (!execution.agent) return undefined;
-    // Reports are always admitted; invalid arguments are reported by the tool itself.
-    if (execution.name === 'todo_report') return undefined;
     try {
       const state = ctx.sessionProjections.stateOf(execution.agent.session, 'todoLedger');
       const message = stepOf(execution.agent.session);
+      // Reports never inherit a decision cached for another call in the same
+      // message; only the step structure decides whether a report may run.
+      if (execution.name === 'todo_report') {
+        const coverage = stepCoverage(state, message, execution);
+        return coverage.outcome === 'blocked' ? coverage.reason : undefined;
+      }
       if (!hasObserved || observedMessage !== message) {
         const coverage = stepCoverage(state, message, execution);
         if (coverage.outcome === 'exempt') {

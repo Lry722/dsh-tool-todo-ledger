@@ -68,10 +68,18 @@ test('todo-only steps need no report and remain exempt', () => {
   assert.equal(stepCoverage(undefined, step, execution('todo_write-call')).outcome, 'exempt');
 });
 
-test('todo_report is lenient about position and company', () => {
+test('todo_report must accompany an action tool but need not lead it', () => {
   for (const step of [
     message(call('todo_report')),
     message(call('todo_report'), call('todo_read')),
+  ]) {
+    assert.match(
+      stepCoverage(undefined, step, execution('todo_report-call')).reason,
+      /不能单独调用/,
+    );
+  }
+  for (const step of [
+    message(call('todo_report'), call('bash')),
     message(call('bash'), call('todo_report')),
   ]) {
     assert.equal(stepCoverage(undefined, step, execution('todo_report-call')).outcome, 'exempt');
@@ -308,6 +316,12 @@ test('a plan without an in-progress task remains a hard block', () => {
   h.setStep(message(call('todo_report'), call('bash')));
   assert.match(h.run(), /没有进行中的任务/);
   assert.equal(h.run('todo_report-call', 'todo_report'), undefined);
+});
+
+test('a standalone report is rejected even when a work decision is cached', () => {
+  const h = guardHarness();
+  h.setStep(message(call('todo_report')));
+  assert.match(h.run('todo_report-call', 'todo_report'), /不能单独调用/);
 });
 
 test('a late report is admitted and leaves no steer behind', () => {
