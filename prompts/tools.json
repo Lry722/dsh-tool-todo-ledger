@@ -4,7 +4,7 @@
     "parameters": {
       "finish": "标记 task 完成。finish 和 start 应当尽量成对进行，避免忘记 finish 就 start 新的 task。",
       "todos": "要追加的新 tasks，或在设置了 reorderFrom 时作为替换的内容。仅更改 task 状态时请省略。",
-      "reorderFrom": "现有 task 编号，从该编号处开始移除当前计划中未完成的 task 并追加替换 task。仅追加 todos 或仅更改 task 状态时请省略。",
+      "reorderFrom": "现有 task 编号，从该编号处开始移除当前计划中未完成的 task 并追加替换 task。仅当需要重排 tasks 时提供。",
       "start": "标记 task 开始。上一个进行中的 task 必须已完成。"
     }
   },
@@ -18,8 +18,8 @@
     "description": "上报进行中的 task 和 issue。在调用任何其他工具时，必须同时进行 todo_report，否则任何其他工具调用都会被拒绝，仅调用其他 todo 工具或最终回复时例外。",
     "parameters": {
       "index": "进行中 task 的编号。",
-      "inIssue": "在执行当前任务时，若遇到较为复杂的多步骤临时问题，则输出 true。例如任务是调研分析，但需要先获取相关文档，可能需要多步来查找资料后才能拿到文档，则查找期间输出 true。若正在精确执行当前任务，没有额外问题，则输出 false。",
-      "issue": "遇到的新问题的描述，inIssue 切换到 true 时必须提供，之后可以省略（延续上次提供的问题），只在需要切换新问题时提供。若遇到的问题远超出当前 task 范畴，则应当调用 todo_write 进行 reorder 而不是视作 issue，例如测试时遇到了问题需要修复。"
+      "inIssue": "在执行当前任务时，若遇到较为复杂的多步骤临时问题，则处理问题期间持续输出 true。例如任务是调研分析，但需要先获取相关文档，可能需要多步来查找资料后才能拿到文档，则查找期间输出 true。若正在精确执行当前任务，没有额外问题，则输出 false。",
+      "issue": "遇到的新问题的描述，inIssue 切换到 true 时必须提供，之后应当省略（延续上次提供的问题）。若遇到的问题远超出当前 task 范畴，则应当调用 todo_write 进行 reorder 而不是视作 issue，例如测试时遇到了问题需要修复，或是要新增测试内容，诸如此类情况则应当重排 tasks。"
     }
   }
 }
