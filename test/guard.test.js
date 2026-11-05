@@ -11,6 +11,7 @@ import {
 import {
   LEDGER_VERSION,
   emptyLedger,
+  finishLedger,
   foldLedgerEvent,
   legacyTodos,
   startLedger,
@@ -31,6 +32,24 @@ function reportedLedger(callId = 'todo_report-call') {
     type: 'todo/write',
     seq: 10,
     time: 1000,
+    data: {
+      todos: legacyTodos(state),
+      ledger: {
+        version: LEDGER_VERSION,
+        operation: 'report',
+        taskId: 't1',
+        callId,
+        report: { index: 1, inIssue: false },
+      },
+    },
+  });
+}
+
+function addReport(state, seq, callId) {
+  return foldLedgerEvent(state, {
+    type: 'todo/write',
+    seq,
+    time: seq * 100,
     data: {
       todos: legacyTodos(state),
       ledger: {
@@ -235,6 +254,26 @@ test('a report recorded outside an action step still restores the grant', () => 
   assert.equal(h.warnings.length, 1);
 
   h.setState(reportedLedger('standalone-report'));
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 2);
+  assert.match(h.warnings[1].content[0].text, /3 exempt steps/);
+});
+
+test('a report on a finished task still resets the budget after a task switch', () => {
+  const h = guardHarness();
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 1);
+
+  let state = addReport(reportedLedger(), 20, 'later-report');
+  state = finishLedger(state, 1).state;
+  state = writeLedger(state, ['Second']).state;
+  state = startLedger(state, 2).state;
+  h.setState(state);
+
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 2);

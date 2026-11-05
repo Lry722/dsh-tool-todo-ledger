@@ -24,6 +24,18 @@ function reportRecorded(task, callId) {
   return task.reports?.at(-1)?.callId === callId;
 }
 
+function latestReport(state) {
+  let latest;
+  for (const node of state?.nodes ?? []) {
+    for (const report of node.reports ?? []) {
+      const order = typeof report.seq === 'number' ? report.seq : report.time ?? 0;
+      const latestOrder = typeof latest?.seq === 'number' ? latest.seq : latest?.time ?? 0;
+      if (latest === undefined || order > latestOrder) latest = report;
+    }
+  }
+  return latest;
+}
+
 /**
  * Create the violation budget that makes coverage checks lenient before they
  * become strict. Each warning round grants one exempt step per remaining budget
@@ -152,12 +164,13 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   let observedMessage;
   let hasObserved = false;
   let observedDecision;
-  let lastReportCallId;
+  let lastReportToken;
 
   function decide(state, coverage, guardedAgent) {
-    const latestReport = inProgressTask(state)?.reports?.at(-1)?.callId;
-    if (latestReport !== undefined && latestReport !== lastReportCallId) {
-      lastReportCallId = latestReport;
+    const latest = latestReport(state);
+    const latestToken = latest?.callId ?? latest?.seq;
+    if (latestToken !== undefined && latestToken !== lastReportToken) {
+      lastReportToken = latestToken;
       budget.reset();
     }
     if (coverage.outcome === 'blocked') return coverage.reason;
