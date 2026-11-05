@@ -33,7 +33,7 @@ test('external prompts load and interpolate review data verbatim', () => {
 });
 
 test('runtime messages load and interpolate prompt placeholders', () => {
-  assert.equal(fillPrompt(GUARD_MESSAGES.blockedPrefix, { reason: 'stop' }), 'Blocked: stop');
+  assert.equal(GUARD_MESSAGES.duplicateReport, 'a step may call todo_report exactly once.');
   assert.match(
     fillPrompt(GUARD_MESSAGES.coverageWarning.one, { granted: 1, remaining: 0 }),
     /1 exempt step is granted/,

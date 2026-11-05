@@ -5,9 +5,7 @@ const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
 
 function blockReason(key, values) {
-  return fillPrompt(GUARD_MESSAGES.blockedPrefix, {
-    reason: fillPrompt(GUARD_MESSAGES[key], values),
-  });
+  return fillPrompt(GUARD_MESSAGES[key], values);
 }
 
 export function stepToolCalls(message) {

@@ -1,5 +1,4 @@
 {
-  "blockedPrefix": "Blocked: {{reason}}",
   "unmatchedStep": "this call could not be matched to the assistant step that requested it. Retry the step.",
   "duplicateReport": "a step may call todo_report exactly once.",
   "lateReport": "todo_report must precede the other tool calls in the same step.",
