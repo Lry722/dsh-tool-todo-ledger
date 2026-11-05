@@ -141,6 +141,11 @@ test('coverage budget grants 3, 2 then 1 exemptions before blocking', () => {
   assert.match(admissions[3].warning, /你忘了调用 todo_report/);
   assert.match(admissions[5].warning, /最后一次警告/);
   assert.equal(admissions[6].warning, undefined);
+  const warnings = admissions.slice(0, 6).map((admission) => admission.warning).filter(Boolean);
+  for (const warning of warnings) {
+    // Warnings must push for the missing report without revealing the slack left.
+    assert.doesNotMatch(warning, /\d/);
+  }
 });
 
 test('a recorded report resets the exemption budget', () => {

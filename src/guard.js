@@ -37,6 +37,10 @@ function latestReport(state) {
  * Create the violation budget that makes coverage checks lenient before they
  * become strict. Each warning round grants one exempt step per remaining budget
  * unit; a successful report resets the budget.
+ *
+ * Warnings only demand the missing report; they never disclose how much of the
+ * allowance is left, because knowing the slack invites spending it instead of
+ * reporting immediately.
  * @param initial - exempt steps granted by the first warning round.
  * @returns the mutable budget.
  */
@@ -61,13 +65,9 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
         if (budget <= 0) return { allowed: false };
       }
       roundStarted = true;
-      const granted = budget;
-      remaining = Math.max(0, granted - 1);
-      const template = granted === 1 ? GUARD_MESSAGES.coverageWarning.one : GUARD_MESSAGES.coverageWarning.many;
-      return {
-        allowed: true,
-        warning: fillPrompt(template, { granted, remaining }),
-      };
+      remaining = budget - 1;
+      const template = budget === 1 ? GUARD_MESSAGES.coverageWarning.one : GUARD_MESSAGES.coverageWarning.many;
+      return { allowed: true, warning: template };
     },
   };
 }

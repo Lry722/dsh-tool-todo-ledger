@@ -39,14 +39,12 @@ test('runtime messages load and interpolate prompt placeholders', () => {
     GUARD_MESSAGES.standaloneReport,
     'todo_report 不能单独调用，必须与同一步骤中的动作工具一起调用。',
   );
-  assert.match(
-    fillPrompt(GUARD_MESSAGES.coverageWarning.one, { granted: 1, remaining: 0 }),
-    /最后一次警告/,
-  );
-  assert.match(
-    fillPrompt(GUARD_MESSAGES.coverageWarning.many, { granted: 3, remaining: 2 }),
-    /你忘了调用 todo_report/,
-  );
+  assert.match(GUARD_MESSAGES.coverageWarning.one, /最后一次警告/);
+  assert.match(GUARD_MESSAGES.coverageWarning.many, /你忘了调用 todo_report/);
+  // Coverage warnings demand the missing report; they must not announce how much
+  // of the exemption allowance is left.
+  assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.one, /\{\{/);
+  assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.many, /\{\{/);
   assert.equal(
     fillPrompt(LEDGER_MESSAGES.taskIndexRange, { tool: 'todo_write', count: 3 }),
     'todo_write: task index must be between 1 and 3',
