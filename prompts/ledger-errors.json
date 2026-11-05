@@ -15,6 +15,6 @@
   "issueString": "todo_report: `issue` must be a non-empty string",
   "issueRequired": "todo_report: `issue` is required when entering an issue",
   "issueOmitted": "todo_report: omit `issue` when `inIssue` is false",
-  "reportInactiveTask": "todo_report: task {{index}} is {{status}}, start it before reporting work",
+  "reportInactiveTask": "todo_report: task {{index}} is {{status}}, finish preview task first",
   "reportSwitchBlocked": "todo_report: finish the previous task before switching goals, or explicitly reorder the plan"
 }
