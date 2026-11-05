@@ -305,8 +305,40 @@ window.__ModuleLoader__.load({
       return chatTargetVisible(target);
     }
 
+    function conversationSession(ctx, sessionId) {
+      for (const entry of ctx.slots.entries('conversation.session')) {
+        if (typeof entry.inject !== 'function' || entry.store === undefined || typeof entry.store === 'function') continue;
+        // DSH exposes no public view-navigation API; reuse the live Session store rendered by the slot.
+        const instance = ctx.slots._stores?.get(entry.store)?.instances?.get(sessionId);
+        if (instance === undefined) continue;
+        return { face: entry.inject(sessionId, instance.actions), instance };
+      }
+      return undefined;
+    }
+
+    async function openTrajectoryToolCall(ctx, sessionId, item) {
+      try {
+        const conversation = conversationSession(ctx, sessionId);
+        if (conversation === undefined) return false;
+        if (typeof item.startSeq === 'number') {
+          const session = ctx.sessions.binding(sessionId)?.session;
+          if (!session) return false;
+          await session.loadThrough(item.startSeq);
+        }
+        conversation.face.openView('trajectory', item.startCallId);
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          if (conversation.instance.getSnapshot().viewRequest === null) return true;
+          await nextFrame();
+        }
+        return false;
+      } catch (_error) {
+        return false;
+      }
+    }
+
     async function openTodoStart(ctx, sessionId, item) {
       if (!item.startCallId) return false;
+      if (document.querySelector('[data-trajectory-scroll]')) return await openTrajectoryToolCall(ctx, sessionId, item);
       try {
         let target = findChatToolCall(item.startCallId);
         if (!target && typeof item.startSeq === 'number') {
