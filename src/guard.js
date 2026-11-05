@@ -1,4 +1,7 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm';
+
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
+const INITIAL_COVERAGE_BUDGET = 3;
 
 function blocked(reason) {
   return `Blocked: ${reason}`;
@@ -22,51 +25,97 @@ function reportRecorded(task, callId) {
 }
 
 /**
- * Decide whether one tool execution is covered by the current todo plan.
- * A work step needs an in-progress main task and exactly one successful
- * todo_report issued before any other tool call in the same assistant message.
+ * Create the violation budget that makes coverage checks lenient before they
+ * become strict. Each warning round grants one exempt step per remaining budget
+ * unit; a successful report resets the budget.
+ * @param initial - exempt steps granted by the first warning round.
+ * @returns the mutable budget.
+ */
+export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
+  let budget = initial;
+  let remaining = 0;
+  let roundStarted = false;
+  return {
+    reset() {
+      budget = initial;
+      remaining = 0;
+      roundStarted = false;
+    },
+    admit() {
+      if (remaining > 0) {
+        remaining -= 1;
+        return { allowed: true };
+      }
+      if (budget <= 0) return { allowed: false };
+      if (roundStarted) {
+        budget -= 1;
+        if (budget <= 0) return { allowed: false };
+      }
+      roundStarted = true;
+      const granted = budget;
+      remaining = Math.max(0, granted - 1);
+      const steps = granted === 1 ? 'step is' : 'steps are';
+      return {
+        allowed: true,
+        warning: `Todo coverage warning: this step has no successful todo_report. ${granted} exempt ${steps} granted for this round (${remaining} remaining); report within them to reset the budget. The step continues the last recorded report.`,
+      };
+    },
+  };
+}
+
+/**
+ * Classify one tool execution against the current todo plan.
+ * A work step needs an in-progress main task and one successful `todo_report`
+ * issued before the other tool calls. Missing or failed reports are exemptible;
+ * malformed steps and plans without an active task remain hard violations.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's tool calls.
  * @param execution - the execution being guarded; `rootCallId` identifies the
  *   model-requested call even for a nested PTC sub-dispatch.
- * @returns a model-facing denial reason, or undefined when the call may run.
+ * @returns the coverage classification for the execution.
  */
-export function stepViolation(state, message, execution) {
+export function stepCoverage(state, message, execution) {
   const calls = stepToolCalls(message);
   const root = calls.find((call) => call.id === execution.rootCallId);
-  if (!root) return blocked('this call could not be matched to the assistant step that requested it. Retry the step.');
+  if (!root) return { outcome: 'blocked', reason: blocked('this call could not be matched to the assistant step that requested it. Retry the step.') };
 
   const reports = calls.filter((call) => call.name === 'todo_report');
   const rootIndex = calls.indexOf(root);
 
   if (root.name === 'todo_report') {
-    if (reports.length !== 1) return blocked('a step may call todo_report exactly once.');
+    if (reports.length !== 1) return { outcome: 'blocked', reason: blocked('a step may call todo_report exactly once.') };
     const firstWork = calls.findIndex((call) => !EXEMPT_TOOLS.has(call.name));
     if (firstWork !== -1 && firstWork < rootIndex) {
-      return blocked('todo_report must precede the other tool calls in the same step.');
+      return { outcome: 'blocked', reason: blocked('todo_report must precede the other tool calls in the same step.') };
     }
-    return undefined;
+    return { outcome: 'exempt' };
   }
 
-  if (EXEMPT_TOOLS.has(root.name)) return undefined;
+  if (EXEMPT_TOOLS.has(root.name)) return { outcome: 'exempt' };
 
   const task = inProgressTask(state);
   if (!task) {
-    return blocked('no main task is in progress. Create and start one, then retry this step with todo_report before the other tool calls.');
+    return { outcome: 'blocked', reason: blocked('no main task is in progress. Create and start one, then retry this step with todo_report before the other tool calls.') };
   }
-  if (reports.length === 0) {
-    return blocked('this step calls other tools without todo_report. Retry with exactly one todo_report before the other tool calls.');
+  if (reports.length > 1) return { outcome: 'blocked', reason: blocked('a step may call todo_report exactly once.') };
+  if (reports.length === 0) return { outcome: 'uncovered', coverage: 'missing' };
+  if (calls.indexOf(reports[0]) > rootIndex) {
+    return { outcome: 'blocked', reason: blocked('todo_report must precede the other tool calls in the same step.') };
   }
-  if (reports.length !== 1) return blocked('a step may call todo_report exactly once.');
+  if (!reportRecorded(task, String(reports[0].id))) return { outcome: 'uncovered', coverage: 'failed' };
+  return { outcome: 'covered' };
+}
 
-  const report = reports[0];
-  if (calls.indexOf(report) > rootIndex) {
-    return blocked('todo_report must precede the other tool calls in the same step.');
+function steerCoverageWarning(agent, text) {
+  if (typeof agent?.steer !== 'function') return;
+  try {
+    agent.steer(createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: 'todo-ledger' },
+    }));
+  } catch (_error) {
+    return;
   }
-  if (!reportRecorded(task, String(report.id))) {
-    return blocked('the todo_report in this step did not record a report. Fix its index and inIssue, then retry before the other tool calls.');
-  }
-  return undefined;
 }
 
 /**
@@ -91,19 +140,49 @@ export function installStepTracker(ctx) {
 
 /**
  * Register the monotonic guard that rejects uncovered tool calls for one agent.
- * Guards sit after the extensible pre-execute policy, so no other plugin can
- * turn this denial back into permission.
+ * Each uncovered step consumes the exemption budget; a successful report resets
+ * it, and only an exhausted budget becomes a hard denial.
  * @param ctx - plugin context providing the ledger projection.
  * @param agent - the agent whose tool calls are guarded.
  * @param stepOf - latest assistant-message lookup from {@link installStepTracker}.
+ * @param budget - coverage budget state, shared by all calls of this agent.
  * @returns the exact guard disposer.
  */
-export function installReportGuard(ctx, agent, stepOf) {
+export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBudget()) {
+  let observedMessage;
+  let hasObserved = false;
+  let observedDecision;
+  let lastReportCallId;
+
+  function decide(state, coverage, guardedAgent) {
+    const latestReport = inProgressTask(state)?.reports?.at(-1)?.callId;
+    if (latestReport !== undefined && latestReport !== lastReportCallId) {
+      lastReportCallId = latestReport;
+      budget.reset();
+    }
+    if (coverage.outcome === 'blocked') return coverage.reason;
+    if (coverage.outcome === 'covered') return undefined;
+    const admission = budget.admit();
+    if (!admission.allowed) {
+      return blocked('todo coverage budget is exhausted. Report the active task with todo_report before the other tool calls, then retry this step.');
+    }
+    if (coverage.coverage === 'missing' && admission.warning !== undefined) steerCoverageWarning(guardedAgent, admission.warning);
+    return undefined;
+  }
+
   return agent.ctx.tools.guard((execution) => {
     if (!execution.agent) return undefined;
     try {
       const state = ctx.sessionProjections.stateOf(execution.agent.session, 'todoLedger');
-      return stepViolation(state, stepOf(execution.agent.session), execution);
+      const message = stepOf(execution.agent.session);
+      if (!hasObserved || observedMessage !== message) {
+        const coverage = stepCoverage(state, message, execution);
+        if (coverage.outcome === 'exempt') return undefined;
+        observedMessage = message;
+        hasObserved = true;
+        observedDecision = decide(state, coverage, execution.agent);
+      }
+      return observedDecision;
     } catch {
       return blocked('this step could not be verified against the todo plan. Retry after the todo state is available.');
     }

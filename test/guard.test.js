@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createCoverageBudget,
   inProgressTask,
   installReportGuard,
   installStepTracker,
+  stepCoverage,
   stepToolCalls,
-  stepViolation,
 } from '../src/guard.js';
 import {
   LEDGER_VERSION,
@@ -43,49 +44,237 @@ function reportedLedger(callId = 'todo_report-call') {
   });
 }
 
-test('todo-only steps need no report and remain allowed', () => {
-  assert.equal(stepViolation(undefined, message(call('todo_write'), call('todo_read')), execution('todo_write-call')), undefined);
-  assert.equal(stepViolation(undefined, message(call('todo_report')), execution('todo_report-call')), undefined);
+test('todo-only steps need no report and remain exempt', () => {
+  const step = message(call('todo_write'), call('todo_read'));
+  assert.equal(stepCoverage(undefined, step, execution('todo_write-call')).outcome, 'exempt');
+  assert.equal(stepCoverage(undefined, message(call('todo_report')), execution('todo_report-call')).outcome, 'exempt');
 });
 
 test('work requires an in-progress main task', () => {
   const step = message(call('todo_report'), call('bash'));
-  assert.match(stepViolation(emptyLedger(), step, execution('bash-call')), /no main task is in progress/);
-  assert.equal(stepViolation(reportedLedger(), step, execution('bash-call')), undefined);
+  assert.match(stepCoverage(emptyLedger(), step, execution('bash-call')).reason, /no main task is in progress/);
+  assert.equal(stepCoverage(reportedLedger(), step, execution('bash-call')).outcome, 'covered');
 });
 
-test('work requires one todo_report before the other tool calls', () => {
+test('coverage separates missing and failed reports from structural errors', () => {
   const missing = message(call('bash'));
-  assert.match(stepViolation(reportedLedger(), missing, execution('bash-call')), /without todo_report/);
+  assert.deepEqual(stepCoverage(reportedLedger(), missing, execution('bash-call')), {
+    outcome: 'uncovered',
+    coverage: 'missing',
+  });
+
+  const failed = message(call('todo_report'), call('bash'));
+  assert.deepEqual(stepCoverage(inProgressLedger(), failed, execution('bash-call')), {
+    outcome: 'uncovered',
+    coverage: 'failed',
+  });
+  assert.deepEqual(stepCoverage(reportedLedger('other-report'), failed, execution('bash-call')), {
+    outcome: 'uncovered',
+    coverage: 'failed',
+  });
 
   const late = message(call('bash'), call('todo_report'));
-  assert.match(stepViolation(reportedLedger(), late, execution('bash-call')), /must precede/);
-  assert.match(stepViolation(reportedLedger(), late, execution('todo_report-call')), /must precede/);
+  assert.match(stepCoverage(reportedLedger(), late, execution('bash-call')).reason, /must precede/);
+  assert.match(stepCoverage(reportedLedger(), late, execution('todo_report-call')).reason, /must precede/);
 
   const duplicated = message(call('todo_report'), call('todo_report', 'second-report'), call('bash'));
-  assert.match(stepViolation(reportedLedger(), duplicated, execution('bash-call')), /exactly once/);
-  assert.match(stepViolation(reportedLedger(), duplicated, execution('todo_report-call')), /exactly once/);
-});
+  assert.match(stepCoverage(reportedLedger(), duplicated, execution('bash-call')).reason, /exactly once/);
+  assert.match(stepCoverage(reportedLedger(), duplicated, execution('todo_report-call')).reason, /exactly once/);
 
-test('work waits for the step report to be recorded', () => {
-  const step = message(call('todo_report'), call('bash'));
-  assert.match(stepViolation(inProgressLedger(), step, execution('bash-call')), /did not record a report/);
-  assert.equal(stepViolation(reportedLedger('todo_report-call'), step, execution('bash-call')), undefined);
-  assert.match(stepViolation(reportedLedger('other-report'), step, execution('bash-call')), /did not record a report/);
+  const unmatched = message(call('bash'));
+  assert.match(stepCoverage(reportedLedger(), unmatched, execution('read-call')).reason, /could not be matched/);
+  assert.match(stepCoverage(reportedLedger(), undefined, execution('bash-call')).reason, /could not be matched/);
 });
 
 test('nested PTC sub-calls are judged by their root model call', () => {
   const step = message(call('todo_report'), call('run_code'));
-  assert.equal(stepViolation(reportedLedger(), step, execution('run_code-call', 'bash')), undefined);
+  assert.equal(stepCoverage(reportedLedger(), step, execution('run_code-call', 'bash')).outcome, 'covered');
 
-  const uncovered = message(call('run_code'), call('todo_report'));
-  assert.match(stepViolation(reportedLedger(), uncovered, execution('run_code-call', 'bash')), /must precede/);
+  const missing = message(call('run_code'));
+  assert.deepEqual(stepCoverage(reportedLedger(), missing, execution('run_code-call', 'bash')), {
+    outcome: 'uncovered',
+    coverage: 'missing',
+  });
 });
 
-test('an unmatched step cannot authorize work', () => {
-  const step = message(call('bash'));
-  assert.match(stepViolation(reportedLedger(), step, execution('read-call')), /could not be matched/);
-  assert.match(stepViolation(reportedLedger(), undefined, execution('bash-call')), /could not be matched/);
+test('coverage budget grants 3, 2 then 1 exemptions before blocking', () => {
+  const budget = createCoverageBudget();
+  const admissions = Array.from({ length: 7 }, () => budget.admit());
+  assert.deepEqual(admissions.map((admission) => admission.allowed), [
+    true, true, true, true, true, true, false,
+  ]);
+  assert.match(admissions[0].warning, /3 exempt steps/);
+  assert.match(admissions[3].warning, /2 exempt steps/);
+  assert.match(admissions[5].warning, /1 exempt step/);
+  assert.equal(admissions[6].warning, undefined);
+});
+
+test('a recorded report resets the exemption budget', () => {
+  const budget = createCoverageBudget();
+  budget.admit();
+  budget.admit();
+  budget.reset();
+  assert.match(budget.admit().warning, /3 exempt steps/);
+});
+
+function guardHarness(initialState = reportedLedger()) {
+  let state = initialState;
+  let step;
+  let guard;
+  const warnings = [];
+  const ctx = {
+    on() {},
+    sessionProjections: {
+      stateOf() {
+        return state;
+      },
+    },
+  };
+  const agent = {
+    session: { id: 'session-1' },
+    steer(input) {
+      warnings.push(input);
+    },
+    ctx: {
+      tools: {
+        guard(fn) {
+          guard = fn;
+          return () => {};
+        },
+      },
+    },
+  };
+  installReportGuard(ctx, agent, () => step);
+  return {
+    warnings,
+    setState(next) {
+      state = next;
+    },
+    setStep(next) {
+      step = next;
+    },
+    run(rootCallId = 'bash-call', name = 'bash') {
+      return guard({ agent, rootCallId, name });
+    },
+  };
+}
+
+test('missing reports are exempted with one steer per warning round', () => {
+  const h = guardHarness();
+
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 1);
+  assert.match(h.warnings[0].content[0].text, /3 exempt steps/);
+
+  assert.equal(h.run('second-call'), undefined);
+  assert.equal(h.warnings.length, 1);
+
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 1);
+
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 2);
+  assert.match(h.warnings[1].content[0].text, /2 exempt steps/);
+
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 2);
+
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 3);
+  assert.match(h.warnings[2].content[0].text, /1 exempt step/);
+
+  h.setStep(message(call('bash')));
+  assert.match(h.run(), /coverage budget is exhausted/);
+  assert.equal(h.warnings.length, 3);
+});
+
+test('failed reports consume the budget silently and eventually block', () => {
+  const h = guardHarness(reportedLedger('earlier-report'));
+  for (let step = 0; step < 6; step += 1) {
+    h.setStep(message(call('todo_report'), call('bash')));
+    assert.equal(h.run(), undefined);
+  }
+  assert.equal(h.warnings.length, 0);
+
+  h.setStep(message(call('todo_report'), call('bash')));
+  assert.match(h.run(), /coverage budget is exhausted/);
+});
+
+test('a recorded report restores the full exemption grant', () => {
+  const h = guardHarness();
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 1);
+
+  h.setState(reportedLedger('next-report'));
+  h.setStep(message(call('todo_report', 'next-report'), call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 1);
+
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 2);
+  assert.match(h.warnings[1].content[0].text, /3 exempt steps/);
+});
+
+test('a report recorded outside an action step still restores the grant', () => {
+  const h = guardHarness();
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 1);
+
+  h.setState(reportedLedger('standalone-report'));
+  h.setStep(message(call('bash')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 2);
+  assert.match(h.warnings[1].content[0].text, /3 exempt steps/);
+});
+
+test('plan gaps and malformed steps remain hard blocks', () => {
+  const h = guardHarness();
+  h.setState(emptyLedger());
+  h.setStep(message(call('todo_report'), call('bash')));
+  assert.match(h.run(), /no main task is in progress/);
+
+  h.setState(reportedLedger());
+  h.setStep(message(call('bash'), call('todo_report')));
+  assert.match(h.run(), /must precede/);
+});
+
+test('a projection failure fails closed', () => {
+  let guard;
+  const ctx = {
+    on() {},
+    sessionProjections: {
+      stateOf() {
+        throw new Error('projection unavailable');
+      },
+    },
+  };
+  const agent = {
+    session: { id: 'session-1' },
+    ctx: {
+      tools: {
+        guard(fn) {
+          guard = fn;
+          return () => {};
+        },
+      },
+    },
+  };
+  installReportGuard(ctx, agent, () => message(call('todo_report'), call('bash')));
+  assert.match(guard({ agent: agent.session, rootCallId: 'bash-call', name: 'bash' }), /could not be verified/);
 });
 
 test('inProgressTask finds the active node and ignores malformed state', () => {
@@ -137,65 +326,4 @@ test('step tracker retains only the latest completed assistant step', () => {
 
   env.fire('session/disposed', {});
   assert.equal(env.stepOf(env.session), undefined);
-});
-
-test('a guard denies and allows through the live projection and tracked step', () => {
-  const listeners = new Map();
-  const session = { id: 'session-1' };
-  let state = reportedLedger();
-  let guard;
-  const ctx = {
-    on(type, fn) {
-      listeners.set(type, fn);
-    },
-    sessionProjections: {
-      stateOf() {
-        return state;
-      },
-    },
-  };
-  const agent = {
-    session,
-    ctx: {
-      tools: {
-        guard(fn) {
-          guard = fn;
-          return () => {};
-        },
-      },
-    },
-  };
-  const stepOf = installStepTracker(ctx);
-  installReportGuard(ctx, agent, stepOf);
-  listeners.get('session/event')(session, assistantEvent(call('todo_report'), call('bash')));
-  assert.equal(guard({ agent, rootCallId: 'bash-call', name: 'bash' }), undefined);
-
-  state = emptyLedger();
-  assert.match(guard({ agent, rootCallId: 'bash-call', name: 'bash' }), /no main task is in progress/);
-  assert.equal(guard({ rootCallId: 'bash-call', name: 'bash' }), undefined);
-});
-
-test('a projection failure fails closed', () => {
-  let guard;
-  const ctx = {
-    on() {},
-    sessionProjections: {
-      stateOf() {
-        throw new Error('projection unavailable');
-      },
-    },
-  };
-  const agent = {
-    session: { id: 'session-1' },
-    ctx: {
-      tools: {
-        guard(fn) {
-          guard = fn;
-          return () => {};
-        },
-      },
-    },
-  };
-  installReportGuard(ctx, agent, () => message(call('todo_report'), call('bash')));
-  assert.match(guard({ agent: agent.session, rootCallId: 'bash-call', name: 'bash' }), /could not be verified/);
 });
