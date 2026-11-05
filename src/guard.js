@@ -4,10 +4,6 @@ import { GUARD_MESSAGES, fillPrompt } from './prompts.js';
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
 
-function blockReason(key, values) {
-  return fillPrompt(GUARD_MESSAGES[key], values);
-}
-
 export function stepToolCalls(message) {
   return message?.content?.filter((block) => block.type === 'tool-call') ?? [];
 }
@@ -90,16 +86,16 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
 export function stepCoverage(state, message, execution) {
   const calls = stepToolCalls(message);
   const root = calls.find((call) => call.id === execution.rootCallId);
-  if (!root) return { outcome: 'blocked', reason: blockReason('unmatchedStep') };
+  if (!root) return { outcome: 'blocked', reason: GUARD_MESSAGES.unmatchedStep };
 
   const reports = calls.filter((call) => call.name === 'todo_report');
   const rootIndex = calls.indexOf(root);
 
   if (root.name === 'todo_report') {
-    if (reports.length !== 1) return { outcome: 'blocked', reason: blockReason('duplicateReport') };
+    if (reports.length !== 1) return { outcome: 'blocked', reason: GUARD_MESSAGES.duplicateReport };
     const firstWork = calls.findIndex((call) => !EXEMPT_TOOLS.has(call.name));
     if (firstWork !== -1 && firstWork < rootIndex) {
-      return { outcome: 'blocked', reason: blockReason('lateReport') };
+      return { outcome: 'blocked', reason: GUARD_MESSAGES.lateReport };
     }
     return { outcome: 'exempt' };
   }
@@ -108,12 +104,12 @@ export function stepCoverage(state, message, execution) {
 
   const task = inProgressTask(state);
   if (!task) {
-    return { outcome: 'blocked', reason: blockReason('noActiveTask') };
+    return { outcome: 'blocked', reason: GUARD_MESSAGES.noActiveTask };
   }
-  if (reports.length > 1) return { outcome: 'blocked', reason: blockReason('duplicateReport') };
+  if (reports.length > 1) return { outcome: 'blocked', reason: GUARD_MESSAGES.duplicateReport };
   if (reports.length === 0) return { outcome: 'uncovered', coverage: 'missing' };
   if (calls.indexOf(reports[0]) > rootIndex) {
-    return { outcome: 'blocked', reason: blockReason('lateReport') };
+    return { outcome: 'blocked', reason: GUARD_MESSAGES.lateReport };
   }
   if (!reportRecorded(task, String(reports[0].id))) return { outcome: 'uncovered', coverage: 'failed' };
   return { outcome: 'covered' };
@@ -178,7 +174,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
     if (coverage.outcome === 'covered') return undefined;
     const admission = budget.admit();
     if (!admission.allowed) {
-      return blockReason('budgetExhausted');
+      return GUARD_MESSAGES.budgetExhausted;
     }
     if (coverage.coverage === 'missing' && admission.warning !== undefined) steerCoverageWarning(guardedAgent, admission.warning);
     return undefined;
@@ -198,7 +194,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       }
       return observedDecision;
     } catch {
-      return blockReason('verificationUnavailable');
+      return GUARD_MESSAGES.verificationUnavailable;
     }
   });
 }
