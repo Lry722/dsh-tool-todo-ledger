@@ -20,7 +20,7 @@
 - **增量维护**：已完成任务只增不删，历史记录只读不可变。只有未开始或尚未完成的任务允许通过显式重排进行作废处理。
 - **原子写入**：`todo_write` 是唯一的规划与状态写入口，可在一次调用中依次完成旧任务、修改规划和启动新任务。所有操作校验成功后才追加事件，避免产生部分成功状态。
 - **显式流转**：通过 `todo_write` 的 `finish` 和 `start` 参数推进任务，不允许静默跳过任务。目标确实变化时，通过同一工具重排当前规划；每次 `todo_write` 后若没有进行中的任务，自动启动第一个待处理任务。
-- **执行上报与渐进覆盖**：每次执行具体动作的 step 必须声明当前目标及 issue 状态。没有进行中的顶层任务或 step 结构错误时，插件直接拒绝动作工具；缺少 `todo_report` 时消耗豁免预算并 steer 警告，上报未成功记录时静默消耗预算，预算耗尽后才拒绝该 step 的动作工具。豁免 step 沿用最后一次有效 report。仅调用 `todo_write` / `todo_read` / `todo_report` 的 step 不受此限制。
+- **执行上报与渐进覆盖**：每次执行具体动作的 step 必须声明当前目标及 issue 状态。没有进行中的顶层任务或 step 结构错误时，插件直接拒绝动作工具；缺少 `todo_report` 时消耗豁免预算并 steer 警告，上报未成功记录时静默消耗预算，预算耗尽后才拒绝该 step 的动作工具。豁免 step 沿用最后一次有效 report。仅调用 `todo_write` / `todo_read` 的 step 不受此限制；`todo_report` 不能单独调用，必须与至少一个动作工具位于同一个 step。
 - **两层任务结构**：任务树最大深度为 2，即“顶层任务 → issue”。处理 issue 时出现的新工作必须先提升为顶层任务，不能继续向下嵌套。
 
 ## 基本概念
@@ -107,7 +107,7 @@ turn 的最终回复不需要调用 `todo_report`。
 
 ### 3. `todo_report`
 
-除最终回复外，每个执行具体动作的 step 都必须调用一次 `todo_report`，上报该批动作所属的目标和 issue 状态。没有工具调用，或仅调用 `todo_write` / `todo_read` 时不需要上报。必须在**同一个 assistant message** 中先发起 `todo_report`，再发起本批动作工具；提前在独立 message 中单独上报不能覆盖后续 message。仅调用 `todo_report` 的 step 也允许，但会在没有进行中任务或参数不合法时报错。
+除最终回复外，每个执行具体动作的 step 都必须调用一次 `todo_report`，上报该批动作所属的目标和 issue 状态。没有工具调用，或仅调用 `todo_write` / `todo_read` 时不需要上报。必须在**同一个 assistant message** 中先发起 `todo_report`，再发起本批动作工具；`todo_report` 不能脱离动作工具单独调用，否则会被 guard 拒绝。提前在独立 message 中上报也不能覆盖后续动作 step。
 
 由于参数很简短，调用成本不高。直接约定每次都调用是为了避免模型忘记调用，若不约定则难以制定精确的检查规则。
 
@@ -131,8 +131,8 @@ turn 的最终回复不需要调用 `todo_report`。
 
 每个 agent 注册一个工具 guard。guard 在该 step 的工具执行前读取当前 `todoLedger` 投影与该 step 的 assistant message，并对每个非豁免调用做以下校验：
 
-1. 当前规划中存在 `in_progress` 顶层任务。没有时，模型必须先通过 `todo_write` 创建并启动任务；`todo_write` / `todo_read` / `todo_report` 本身仍可调用。
-2. assistant message 中至多有一条 `todo_report`，且排在所有动作工具之前。多报或排在动作之后属于结构错误，直接拒绝。
+1. 当前规划中存在 `in_progress` 顶层任务。没有时，模型必须先通过 `todo_write` 创建并启动任务；`todo_write` / `todo_read` 仍可调用。
+2. assistant message 中至多有一条 `todo_report`，且排在所有动作工具之前，同时该 message 至少包含一条动作工具。单独上报、多报或排在动作之后属于结构错误，直接拒绝。
 3. 该 `todo_report` 已成功写入账本（当前任务的最新 report call ID 等于本条调用 ID）。
 
 缺少 `todo_report` 或上报未成功记录时，动作不立即拒绝，而是消耗豁免预算：

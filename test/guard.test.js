@@ -66,12 +66,25 @@ function addReport(state, seq, callId) {
 test('todo-only steps need no report and remain exempt', () => {
   const step = message(call('todo_write'), call('todo_read'));
   assert.equal(stepCoverage(undefined, step, execution('todo_write-call')).outcome, 'exempt');
-  assert.equal(stepCoverage(undefined, message(call('todo_report')), execution('todo_report-call')).outcome, 'exempt');
+});
+
+test('todo_report must accompany an action tool', () => {
+  for (const step of [
+    message(call('todo_report')),
+    message(call('todo_report'), call('todo_read')),
+  ]) {
+    assert.match(
+      stepCoverage(undefined, step, execution('todo_report-call')).reason,
+      /不能单独调用/,
+    );
+  }
+  const accompanied = message(call('todo_report'), call('bash'));
+  assert.equal(stepCoverage(undefined, accompanied, execution('todo_report-call')).outcome, 'exempt');
 });
 
 test('work requires an in-progress main task', () => {
   const step = message(call('todo_report'), call('bash'));
-  assert.match(stepCoverage(emptyLedger(), step, execution('bash-call')).reason, /no main task is in progress/);
+  assert.match(stepCoverage(emptyLedger(), step, execution('bash-call')).reason, /没有进行中的任务/);
   assert.equal(stepCoverage(reportedLedger(), step, execution('bash-call')).outcome, 'covered');
 });
 
@@ -93,12 +106,12 @@ test('coverage separates missing and failed reports from structural errors', () 
   });
 
   const late = message(call('bash'), call('todo_report'));
-  assert.match(stepCoverage(reportedLedger(), late, execution('bash-call')).reason, /must precede/);
-  assert.match(stepCoverage(reportedLedger(), late, execution('todo_report-call')).reason, /must precede/);
+  assert.match(stepCoverage(reportedLedger(), late, execution('bash-call')).reason, /必须排在/);
+  assert.match(stepCoverage(reportedLedger(), late, execution('todo_report-call')).reason, /必须排在/);
 
   const duplicated = message(call('todo_report'), call('todo_report', 'second-report'), call('bash'));
-  assert.match(stepCoverage(reportedLedger(), duplicated, execution('bash-call')).reason, /exactly once/);
-  assert.match(stepCoverage(reportedLedger(), duplicated, execution('todo_report-call')).reason, /exactly once/);
+  assert.match(stepCoverage(reportedLedger(), duplicated, execution('bash-call')).reason, /只能调用一次/);
+  assert.match(stepCoverage(reportedLedger(), duplicated, execution('todo_report-call')).reason, /只能调用一次/);
 });
 
 test('calls outside the tracked assistant step are exempt', () => {
@@ -124,9 +137,9 @@ test('coverage budget grants 3, 2 then 1 exemptions before blocking', () => {
   assert.deepEqual(admissions.map((admission) => admission.allowed), [
     true, true, true, true, true, true, false,
   ]);
-  assert.match(admissions[0].warning, /3 exempt steps/);
-  assert.match(admissions[3].warning, /2 exempt steps/);
-  assert.match(admissions[5].warning, /1 exempt step/);
+  assert.match(admissions[0].warning, /你忘了调用 todo_report/);
+  assert.match(admissions[3].warning, /你忘了调用 todo_report/);
+  assert.match(admissions[5].warning, /最后一次警告/);
   assert.equal(admissions[6].warning, undefined);
 });
 
@@ -135,7 +148,7 @@ test('a recorded report resets the exemption budget', () => {
   budget.admit();
   budget.admit();
   budget.reset();
-  assert.match(budget.admit().warning, /3 exempt steps/);
+  assert.match(budget.admit().warning, /你忘了调用 todo_report/);
 });
 
 function guardHarness(initialState = reportedLedger()) {
@@ -186,7 +199,7 @@ test('missing reports are exempted with one steer per warning round', () => {
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 1);
-  assert.match(h.warnings[0].content[0].text, /3 exempt steps/);
+  assert.match(h.warnings[0].content[0].text, /你忘了调用 todo_report/);
 
   assert.equal(h.run('second-call'), undefined);
   assert.equal(h.warnings.length, 1);
@@ -200,7 +213,7 @@ test('missing reports are exempted with one steer per warning round', () => {
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 2);
-  assert.match(h.warnings[1].content[0].text, /2 exempt steps/);
+  assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
 
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
@@ -209,10 +222,10 @@ test('missing reports are exempted with one steer per warning round', () => {
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 3);
-  assert.match(h.warnings[2].content[0].text, /1 exempt step/);
+  assert.match(h.warnings[2].content[0].text, /最后一次警告/);
 
   h.setStep(message(call('bash')));
-  assert.match(h.run(), /coverage budget is exhausted/);
+  assert.match(h.run(), /所有工具调用将被拦截/);
   assert.equal(h.warnings.length, 3);
 });
 
@@ -225,7 +238,7 @@ test('failed reports consume the budget silently and eventually block', () => {
   assert.equal(h.warnings.length, 0);
 
   h.setStep(message(call('todo_report'), call('bash')));
-  assert.match(h.run(), /coverage budget is exhausted/);
+  assert.match(h.run(), /所有工具调用将被拦截/);
 });
 
 test('a recorded report restores the full exemption grant', () => {
@@ -244,7 +257,7 @@ test('a recorded report restores the full exemption grant', () => {
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 2);
-  assert.match(h.warnings[1].content[0].text, /3 exempt steps/);
+  assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
 });
 
 test('a report recorded outside an action step still restores the grant', () => {
@@ -259,7 +272,7 @@ test('a report recorded outside an action step still restores the grant', () => 
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 2);
-  assert.match(h.warnings[1].content[0].text, /3 exempt steps/);
+  assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
 });
 
 test('a report on a finished task still resets the budget after a task switch', () => {
@@ -279,18 +292,21 @@ test('a report on a finished task still resets the budget after a task switch', 
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 2);
-  assert.match(h.warnings[1].content[0].text, /3 exempt steps/);
+  assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
 });
 
 test('plan gaps and malformed steps remain hard blocks', () => {
   const h = guardHarness();
   h.setState(emptyLedger());
   h.setStep(message(call('todo_report'), call('bash')));
-  assert.match(h.run(), /no main task is in progress/);
+  assert.match(h.run(), /没有进行中的任务/);
 
   h.setState(reportedLedger());
   h.setStep(message(call('bash'), call('todo_report')));
-  assert.match(h.run(), /must precede/);
+  assert.match(h.run(), /必须排在/);
+
+  h.setStep(message(call('todo_report')));
+  assert.match(h.run('todo_report-call', 'todo_report'), /不能单独调用/);
 });
 
 test('a projection failure notifies the user and lets the call continue', () => {

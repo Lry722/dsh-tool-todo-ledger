@@ -95,9 +95,8 @@ export function stepCoverage(state, message, execution) {
   if (root.name === 'todo_report') {
     if (reports.length !== 1) return { outcome: 'blocked', reason: GUARD_MESSAGES.duplicateReport };
     const firstWork = calls.findIndex((call) => !EXEMPT_TOOLS.has(call.name));
-    if (firstWork !== -1 && firstWork < rootIndex) {
-      return { outcome: 'blocked', reason: GUARD_MESSAGES.lateReport };
-    }
+    if (firstWork === -1) return { outcome: 'blocked', reason: GUARD_MESSAGES.standaloneReport };
+    if (firstWork < rootIndex) return { outcome: 'blocked', reason: GUARD_MESSAGES.lateReport };
     return { outcome: 'exempt' };
   }
 

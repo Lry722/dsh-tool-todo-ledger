@@ -34,14 +34,18 @@ test('external prompts load and interpolate review data verbatim', () => {
 });
 
 test('runtime messages load and interpolate prompt placeholders', () => {
-  assert.equal(GUARD_MESSAGES.duplicateReport, 'a step may call todo_report exactly once.');
+  assert.equal(GUARD_MESSAGES.duplicateReport, '单个步骤只能调用一次 todo_report。');
+  assert.equal(
+    GUARD_MESSAGES.standaloneReport,
+    'todo_report 不能单独调用，必须与同一步骤中的动作工具一起调用。',
+  );
   assert.match(
     fillPrompt(GUARD_MESSAGES.coverageWarning.one, { granted: 1, remaining: 0 }),
-    /1 exempt step is granted/,
+    /最后一次警告/,
   );
   assert.match(
     fillPrompt(GUARD_MESSAGES.coverageWarning.many, { granted: 3, remaining: 2 }),
-    /3 exempt steps are granted/,
+    /你忘了调用 todo_report/,
   );
   assert.equal(
     fillPrompt(LEDGER_MESSAGES.taskIndexRange, { tool: 'todo_write', count: 3 }),
