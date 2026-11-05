@@ -19,6 +19,7 @@ export const TOOL_PROMPTS = loadJson('tools');
 export const GUARD_MESSAGES = loadJson('guard-messages');
 export const LEDGER_MESSAGES = loadJson('ledger-errors');
 export const TOOL_MESSAGES = loadJson('tool-messages');
+export const NOTICES = loadJson('notices');
 const REVIEW_REQUEST = loadMarkdown('review-request');
 const REVIEW_RESULTS = loadJson('review-results');
 const REVIEW_ERRORS = loadJson('review-errors');

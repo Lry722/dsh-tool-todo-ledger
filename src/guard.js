@@ -1,5 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
-import { GUARD_MESSAGES, fillPrompt } from './prompts.js';
+import { GUARD_MESSAGES, NOTICES, fillPrompt } from './prompts.js';
 
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
@@ -128,6 +128,25 @@ function steerCoverageWarning(agent, text) {
   }
 }
 
+function reportGuardFailure(ctx, agent, error) {
+  const text = fillPrompt(NOTICES.guardFailure, {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  try {
+    agent.inject(createUserMessage({
+      content: [{ type: 'text', text }],
+      source: {
+        kind: 'todo-ledger',
+        form: 'notice',
+        summary: NOTICES.guardFailureSummary,
+      },
+    }));
+  } catch (_error) {
+    // The log entry below remains the fallback when injection is unavailable.
+  }
+  ctx.logger?.error(text);
+}
+
 /**
  * Remember the latest assistant message per session so a later tool guard can
  * inspect the complete step, including calls that have not run yet.
@@ -163,6 +182,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   let hasObserved = false;
   let observedDecision;
   let lastReportToken;
+  let failureReported = false;
 
   function decide(state, coverage, guardedAgent) {
     const latest = latestReport(state);
@@ -188,14 +208,26 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       const message = stepOf(execution.agent.session);
       if (!hasObserved || observedMessage !== message) {
         const coverage = stepCoverage(state, message, execution);
-        if (coverage.outcome === 'exempt') return undefined;
+        if (coverage.outcome === 'exempt') {
+          failureReported = false;
+          return undefined;
+        }
         observedMessage = message;
         hasObserved = true;
         observedDecision = decide(state, coverage, execution.agent);
       }
+      failureReported = false;
       return observedDecision;
-    } catch {
-      return GUARD_MESSAGES.verificationUnavailable;
+    } catch (error) {
+      if (!failureReported) {
+        failureReported = true;
+        try {
+          reportGuardFailure(ctx, agent, error);
+        } catch (_error) {
+          // Reporting is best-effort; the tool call must still proceed.
+        }
+      }
+      return undefined;
     }
   });
 }

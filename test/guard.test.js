@@ -293,10 +293,13 @@ test('plan gaps and malformed steps remain hard blocks', () => {
   assert.match(h.run(), /must precede/);
 });
 
-test('a projection failure fails closed', () => {
+test('a projection failure notifies the user and lets the call continue', () => {
+  const notices = [];
+  const errors = [];
   let guard;
   const ctx = {
     on() {},
+    logger: { error: (text) => errors.push(text) },
     sessionProjections: {
       stateOf() {
         throw new Error('projection unavailable');
@@ -305,6 +308,9 @@ test('a projection failure fails closed', () => {
   };
   const agent = {
     session: { id: 'session-1' },
+    inject(message) {
+      notices.push(message);
+    },
     ctx: {
       tools: {
         guard(fn) {
@@ -315,7 +321,18 @@ test('a projection failure fails closed', () => {
     },
   };
   installReportGuard(ctx, agent, () => message(call('todo_report'), call('bash')));
-  assert.match(guard({ agent: agent.session, rootCallId: 'bash-call', name: 'bash' }), /could not be verified/);
+  assert.equal(guard({ agent: agent.session, rootCallId: 'bash-call', name: 'bash' }), undefined);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0].content[0].text, /could not verify a tool call/);
+  assert.match(notices[0].content[0].text, /projection unavailable/);
+  assert.equal(notices[0].source.form, 'notice');
+  assert.equal(notices[0].source.summary, 'Todo ledger guard failure');
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /projection unavailable/);
+
+  assert.equal(guard({ agent: agent.session, rootCallId: 'bash-call', name: 'bash' }), undefined);
+  assert.equal(notices.length, 1);
+  assert.equal(errors.length, 1);
 });
 
 test('inProgressTask finds the active node and ignores malformed state', () => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   GUARD_MESSAGES,
   LEDGER_MESSAGES,
+  NOTICES,
   REVIEW_POLICY,
   TOOL_MESSAGES,
   fillPrompt,
@@ -53,6 +54,10 @@ test('runtime messages load and interpolate prompt placeholders', () => {
   assert.equal(
     reviewError('failed', { kind: 'error', message: 'boom' }).message,
     'reviewer ended with error: boom',
+  );
+  assert.match(
+    fillPrompt(NOTICES.guardFailure, { error: 'projection unavailable' }),
+    /projection unavailable.*allowed to continue/,
   );
   assert.equal(fillPrompt('Leave {{unknown}} intact', {}), 'Leave {{unknown}} intact');
 });

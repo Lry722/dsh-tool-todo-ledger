@@ -146,6 +146,8 @@ guard 使用 `rootCallId` 把 PTC 嵌套调用归属到外层 `run_code`，因�
 
 无法归属到当前 assistant step 的调用通常来自插件生命周期或外部触发，guard 将其按豁免处理，避免把内部状态问题反馈给模型。
 
+guard 读取状态或分类调用时出错，会向会话注入一条 notice 报告给用户，并让当前调用继续执行。
+
 ## 持久化与兼容性
 
 插件复用已知的 `todo/write` Session 事件：

@@ -1,0 +1,4 @@
+{
+  "guardFailureSummary": "Todo ledger guard failure",
+  "guardFailure": "The todo ledger guard could not verify a tool call because of an internal error: {{error}}. The call was allowed to continue. No assistant action is required; check the plugin logs or reload the plugin."
+}
