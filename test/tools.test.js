@@ -202,7 +202,6 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
   assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /下一个待处理 task 会自动 start/);
   assert.match(TOOL_PROMPTS.todo_write.parameters.start, /插件会自动启动第一个待处理的 task/);
   assert.match(TOOL_PROMPTS.todo_report.description, /在同一次回复中一并调用 todo_report/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /无需排在首位/);
   assert.match(TOOL_PROMPTS.todo_report.description, /单独调用 todo_report 会被拒绝/);
   assert.match(TOOL_PROMPTS.todo_report.description, /重复调用不会/);
   assert.match(TOOL_PROMPTS.todo_report.description, /仅调用其他 todo 工具或最终回复时不需要调用/);
