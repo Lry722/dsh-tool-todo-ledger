@@ -269,7 +269,7 @@ export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
       state: next,
       ledger: { operation: 'start', taskId: result.taskId },
     });
-  } else if (reorderFrom !== undefined && !hasInProgress(next)) {
+  } else if (!hasInProgress(next)) {
     const index = firstPendingIndex(next);
     if (index > 0) {
       const result = startLedger(next, index);

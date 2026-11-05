@@ -56,15 +56,26 @@ test('todo_write appends a replayable delta and volatile review config is read p
   const first = await env.tools.todo_write.execute({ todos: ['First'] }, env.exec);
   assert.equal(first.review, undefined);
   assert.deepEqual(first.added, [{ index: 1, content: 'First' }]);
-  assert.equal(env.appended[0].data.ledger.operation, 'write');
+  assert.deepEqual(first.started, { content: 'First' });
+  assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start']);
   assert.deepEqual(env.appended[0].data.todos, [{ content: 'First', status: 'pending' }]);
+  assert.deepEqual(env.appended[1].data.todos, [{ content: 'First', status: 'in_progress' }]);
 
   env.setEnabled(true);
   const second = await env.tools.todo_write.execute({ todos: ['Second'] }, env.exec);
   assert.equal(second.review.status, 'passed');
-  assert.equal(env.appended.length, 2);
+  assert.equal(second.started, undefined);
+  assert.equal(env.appended.length, 3);
   const read = await env.tools.todo_read.execute({}, env.exec);
   assert.deepEqual(read.tasks.map((task) => task.content), ['First', 'Second']);
+});
+
+test('initial creation auto-starts a task that can be reported', async () => {
+  const env = harness();
+  const created = await env.tools.todo_write.execute({ todos: ['Task'] }, env.exec);
+  assert.deepEqual(created.started, { content: 'Task' });
+  const reported = await env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec);
+  assert.deepEqual(reported, {});
 });
 
 test('review warnings are returned while technical failures stay invisible', async () => {
@@ -76,12 +87,12 @@ test('review warnings are returned while technical failures stay invisible', asy
   const warned = await warning.tools.todo_write.execute({ todos: ['Implement'] }, warning.exec);
   assert.equal(warned.review.status, 'warning');
   assert.equal(warned.review.message, 'AGENTS.md review warning: Add the required test task.');
-  assert.equal(warning.appended.length, 1);
+  assert.equal(warning.appended.length, 2);
 
   const malformed = harness({ enabled: true, instructions: ['Plan.'], reviewText: 'bad json' });
   const continued = await malformed.tools.todo_write.execute({ todos: ['Implement'] }, malformed.exec);
   assert.equal(Object.hasOwn(continued, 'review'), false);
-  assert.equal(malformed.appended.length, 1);
+  assert.equal(malformed.appended.length, 2);
 });
 
 test('composite writes preserve separate start, report and finish operations', async () => {
@@ -184,13 +195,12 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
     const text = [tool.description, ...parameters].join('\n');
     assert.doesNotMatch(text, /\b(?:ledger|step|stateless|voids|voided|bounded|top-level|1-based|localTask|local task)\b/i, tool.name);
   }
-  assert.match(TOOL_PROMPTS.todo_write.description, /必须先创建并 start 至少一个 task/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /必须先通过 todo_write 创建至少一个 task/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /每次 todo_write 后如果没有进行中的 task，会自动 start 第一个待处理的 task/);
   assert.match(TOOL_PROMPTS.todo_write.description, /一旦 task 目标达成，必须明确将其 finish/);
   assert.match(TOOL_PROMPTS.todo_write.description, /及时进行 reorder 修改未完成的 tasks/);
-  assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /finish 和 start 应当尽量成对进行/);
-  assert.match(TOOL_PROMPTS.todo_write.description, /自动 start 第一个待处理的 task/);
-  assert.match(TOOL_PROMPTS.todo_write.parameters.reorderFrom, /自动启动第一个待处理的 task/);
-  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /重排后的启动由插件自动完成/);
+  assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /下一个待处理 task 会自动 start/);
+  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /插件会自动启动第一个待处理的 task/);
   assert.match(TOOL_PROMPTS.todo_report.description, /必须同时调用 todo_report/);
   assert.match(TOOL_PROMPTS.todo_report.description, /顺序必须排在第一/);
   assert.match(TOOL_PROMPTS.todo_report.description, /仅调用其他 todo 工具或最终回复时例外/);

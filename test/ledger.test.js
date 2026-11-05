@@ -40,6 +40,30 @@ test('tasks must start in order and finish explicitly', () => {
   assert.equal(startLedger(finished, 2).state.nodes[1].status, 'in_progress');
 });
 
+test('initial append auto-starts the first task', () => {
+  const result = updateLedger(emptyLedger(), { todos: ['First', 'Second'] });
+
+  assert.deepEqual(result.operations.map((operation) => operation.ledger.operation), ['write', 'start']);
+  assert.deepEqual(result.started, { index: 1, taskId: 't1', status: 'in_progress' });
+  assert.deepEqual(numberedPlan(result.state), [
+    { index: 1, content: 'First', status: 'in_progress' },
+    { index: 2, content: 'Second', status: 'pending' },
+  ]);
+});
+
+test('finish auto-starts the next pending task', () => {
+  const state = startLedger(planned(), 1).state;
+  const result = updateLedger(state, { finish: 1 });
+
+  assert.deepEqual(result.operations.map((operation) => operation.ledger.operation), ['finish', 'start']);
+  assert.deepEqual(result.started, { index: 2, taskId: 't2', status: 'in_progress' });
+  assert.deepEqual(numberedPlan(result.state), [
+    { index: 1, content: 'Confirm requirements', status: 'completed' },
+    { index: 2, content: 'Implement ledger', status: 'in_progress' },
+    { index: 3, content: 'Add tests', status: 'pending' },
+  ]);
+});
+
 test('composite updates finish, reorder and start in a fixed order', () => {
   let state = writeLedger(emptyLedger(), ['Confirm', 'Implement', 'Test', 'Document']).state;
   state = startLedger(state, 1).state;
