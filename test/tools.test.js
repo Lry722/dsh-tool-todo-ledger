@@ -127,20 +127,20 @@ test('finish and start share one call without triggering plan review', async () 
   ]);
 });
 
-test('reorder and start returns the final active plan', async () => {
+test('reorder auto-starts the first pending task', async () => {
   const env = harness();
   await env.tools.todo_write.execute({ todos: ['One', 'Two', 'Three'], start: 1 }, env.exec);
   await env.tools.todo_write.execute({ finish: 1, start: 2 }, env.exec);
   const result = await env.tools.todo_write.execute({
     reorderFrom: 2,
     todos: ['Replacement', 'Later'],
-    start: 2,
   }, env.exec);
   assert.equal(result.mode, 'reorder');
   assert.deepEqual(result.invalidated, [
     { oldIndex: 2, content: 'Two', status: 'in_progress' },
     { oldIndex: 3, content: 'Three', status: 'pending' },
   ]);
+  assert.deepEqual(result.started, { content: 'Replacement' });
   assert.deepEqual(result.plan, [
     { index: 1, content: 'One', status: 'completed' },
     { index: 2, content: 'Replacement', status: 'in_progress' },
@@ -148,6 +148,11 @@ test('reorder and start returns the final active plan', async () => {
   ]);
   assert.deepEqual(env.appended.at(-2).data.ledger.reorderFrom, 2);
   assert.equal(env.appended.at(-1).data.ledger.operation, 'start');
+  assert.deepEqual(env.appended.at(-1).data.todos, [
+    { content: 'One', status: 'completed' },
+    { content: 'Replacement', status: 'in_progress' },
+    { content: 'Later', status: 'pending' },
+  ]);
 });
 
 test('a failed composite call appends no partial operations', async () => {
@@ -183,7 +188,9 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
   assert.match(TOOL_PROMPTS.todo_write.description, /一旦 task 目标达成，必须明确将其 finish/);
   assert.match(TOOL_PROMPTS.todo_write.description, /及时进行 reorder 修改未完成的 tasks/);
   assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /finish 和 start 应当尽量成对进行/);
-  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /上一个进行中的 task 必须已完成/);
+  assert.match(TOOL_PROMPTS.todo_write.description, /自动 start 第一个待处理的 task/);
+  assert.match(TOOL_PROMPTS.todo_write.parameters.reorderFrom, /自动启动第一个待处理的 task/);
+  assert.match(TOOL_PROMPTS.todo_write.parameters.start, /重排后的启动由插件自动完成/);
   assert.match(TOOL_PROMPTS.todo_report.description, /必须同时调用 todo_report/);
   assert.match(TOOL_PROMPTS.todo_report.description, /顺序必须排在第一/);
   assert.match(TOOL_PROMPTS.todo_report.description, /仅调用其他 todo 工具或最终回复时例外/);

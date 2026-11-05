@@ -220,6 +220,14 @@ export function finishLedger(state, index) {
   return { state: next, taskId: id };
 }
 
+function hasInProgress(state) {
+  return state.currentIds.some((id) => state.nodes.find((node) => node.id === id)?.status === 'in_progress');
+}
+
+function firstPendingIndex(state) {
+  return state.currentIds.findIndex((id) => state.nodes.find((node) => node.id === id)?.status === 'pending') + 1;
+}
+
 export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
   const { todos, reorderFrom, finish, start } = args;
   let next = state;
@@ -261,6 +269,17 @@ export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
       state: next,
       ledger: { operation: 'start', taskId: result.taskId },
     });
+  } else if (reorderFrom !== undefined && !hasInProgress(next)) {
+    const index = firstPendingIndex(next);
+    if (index > 0) {
+      const result = startLedger(next, index);
+      next = result.state;
+      started = { index, taskId: result.taskId, status: 'in_progress' };
+      operations.push({
+        state: next,
+        ledger: { operation: 'start', taskId: result.taskId },
+      });
+    }
   }
 
   if (operations.length === 0) {

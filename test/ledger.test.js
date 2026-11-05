@@ -126,6 +126,39 @@ test('an empty reorder explicitly voids unfinished work', () => {
   assert.equal(result.state.nodes.filter((node) => node.status === 'void').length, 2);
 });
 
+test('reorder auto-starts the first pending task when none is active', () => {
+  let state = planned();
+  state = startLedger(state, 1).state;
+  state = finishLedger(state, 1).state;
+  const result = updateLedger(state, {
+    reorderFrom: 2,
+    todos: ['Replacement', 'Later'],
+  });
+
+  assert.deepEqual(result.operations.map((operation) => operation.ledger.operation), ['write', 'start']);
+  assert.deepEqual(result.started, { index: 2, taskId: 't4', status: 'in_progress' });
+  assert.deepEqual(numberedPlan(result.state), [
+    { index: 1, content: 'Confirm requirements', status: 'completed' },
+    { index: 2, content: 'Replacement', status: 'in_progress' },
+    { index: 3, content: 'Later', status: 'pending' },
+  ]);
+});
+
+test('reorder keeps an existing in-progress task without auto-starting another', () => {
+  const state = startLedger(planned(), 1).state;
+  const result = updateLedger(state, {
+    reorderFrom: 2,
+    todos: ['Replacement'],
+  });
+
+  assert.deepEqual(result.operations.map((operation) => operation.ledger.operation), ['write']);
+  assert.equal(result.started, undefined);
+  assert.deepEqual(numberedPlan(result.state), [
+    { index: 1, content: 'Confirm requirements', status: 'in_progress' },
+    { index: 2, content: 'Replacement', status: 'pending' },
+  ]);
+});
+
 test('default view starts at the last completed task', () => {
   let state = planned();
   state = startLedger(state, 1).state;
