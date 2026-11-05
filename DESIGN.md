@@ -106,7 +106,7 @@ turn 的最终回复不需要调用 `todo_report`。
 
 ### 3. `todo_report`
 
-除最终回复外，每个执行具体动作的 step 都应该调用一次 `todo_report`，上报该批动作所属的目标和 issue 状态。没有工具调用，或仅调用 `todo_write` / `todo_read` 时不需要上报。`todo_report` 与动作工具位于**同一个 assistant message** 即可，不要求排在其前；重复调用或晚于动作调用都不会被 guard 拒绝，但单独调用会被拒绝，独立 message 中的上报也不能覆盖后续动作 step。排在动作之后的上报在该动作执行前尚未写入账本，按临时覆盖放行。
+除最终回复外，每个执行具体动作的 step 都应该调用一次 `todo_report`，上报该批动作所属的目标和 issue 状态。没有工具调用，或仅调用 `todo_write` / `todo_read` 时不需要上报。`todo_report` 与至少一个其他工具位于**同一个 assistant message** 即可，不要求排在其前；重复调用或晚于动作调用都不会被 guard 拒绝，但单独调用会被拒绝，独立 message 中的上报也不能覆盖后续动作 step。排在动作之后的上报在该动作执行前尚未写入账本，按临时覆盖放行。
 
 由于参数很简短，调用成本不高。直接约定每次都调用是为了避免模型忘记调用，若不约定则难以制定精确的检查规则。
 
@@ -131,7 +131,7 @@ turn 的最终回复不需要调用 `todo_report`。
 每个 agent 注册一个工具 guard。guard 在该 step 的工具执行前读取当前 `todoLedger` 投影与该 step 的 assistant message，并对每个非豁免调用做以下校验：
 
 1. 当前规划中存在 `in_progress` 顶层任务。没有时，模型必须先通过 `todo_write` 创建并启动任务；`todo_write` / `todo_read` 仍可调用。
-2. assistant message 中至少包含一条动作工具；只调用 `todo_report` 的 message 会被拒绝，避免每步额外产生一次上报请求。
+2. assistant message 中除 `todo_report` 外至少包含一条其他工具调用；整批只有 `todo_report` 的 message 会被拒绝，避免每步额外产生一次上报请求。
 3. assistant message 中至少有一条 `todo_report`，位置与数量不限；多条时任一成功写入账本即算覆盖。该上报需已成功写入账本（当前任务的最新 report call ID 等于该调用的 ID）。排在当前动作之后的上报尚未执行，按临时覆盖放行，不消耗预算；它在执行后是否成功记录由后续 step 校验。
 
 缺少 `todo_report` 或上报已执行但未成功记录时，动作不立即拒绝，而是消耗豁免预算：

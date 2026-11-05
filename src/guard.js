@@ -2,8 +2,6 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { GUARD_MESSAGES, NOTICES, fillPrompt } from './prompts.js';
 
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
-// A report may accompany plan writes, but reads and other reports are not work.
-const NON_WORK_TOOLS = new Set(['todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
 
 export function stepToolCalls(message) {
@@ -95,8 +93,8 @@ export function stepCoverage(state, message, execution) {
   if (!root) return { outcome: 'exempt' };
 
   if (EXEMPT_TOOLS.has(root.name)) {
-    // A report must accompany real work; reporting alone only doubles requests.
-    if (root.name === 'todo_report' && !calls.some((call) => !NON_WORK_TOOLS.has(call.name))) {
+    // A report must accompany any other tool; reporting alone only doubles requests.
+    if (root.name === 'todo_report' && !calls.some((call) => call.name !== 'todo_report')) {
       return { outcome: 'blocked', reason: GUARD_MESSAGES.standaloneReport };
     }
     return { outcome: 'exempt' };

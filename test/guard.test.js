@@ -68,10 +68,10 @@ test('todo-only steps need no report and remain exempt', () => {
   assert.equal(stepCoverage(undefined, step, execution('todo_write-call')).outcome, 'exempt');
 });
 
-test('todo_report must accompany an action tool but need not lead it', () => {
+test('a report must accompany another tool but need not lead it', () => {
   for (const step of [
     message(call('todo_report')),
-    message(call('todo_report'), call('todo_read')),
+    message(call('todo_report'), call('todo_report', 'second-report')),
   ]) {
     assert.match(
       stepCoverage(undefined, step, execution('todo_report-call')).reason,
@@ -79,17 +79,12 @@ test('todo_report must accompany an action tool but need not lead it', () => {
     );
   }
   for (const step of [
-    message(call('todo_report'), call('bash')),
-    message(call('bash'), call('todo_report')),
-  ]) {
-    assert.equal(stepCoverage(undefined, step, execution('todo_report-call')).outcome, 'exempt');
-  }
-});
-
-test('a report may share a step with a plan write', () => {
-  for (const step of [
+    message(call('todo_report'), call('todo_read')),
+    message(call('todo_read'), call('todo_report')),
     message(call('todo_report'), call('todo_write')),
     message(call('todo_write'), call('todo_report')),
+    message(call('todo_report'), call('bash')),
+    message(call('bash'), call('todo_report')),
   ]) {
     assert.equal(stepCoverage(undefined, step, execution('todo_report-call')).outcome, 'exempt');
   }

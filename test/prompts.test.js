@@ -36,7 +36,7 @@ test('external prompts load and interpolate review data verbatim', () => {
 test('runtime messages load and interpolate prompt placeholders', () => {
   assert.equal(
     GUARD_MESSAGES.standaloneReport,
-    'todo_report 不能单独调用，必须与同一次回复中的动作工具一起调用。',
+    'todo_report 不能单独调用，必须与同一次回复中的其他工具一起调用。',
   );
   assert.match(GUARD_MESSAGES.coverageWarning.one, /最后一次警告/);
   assert.match(GUARD_MESSAGES.coverageWarning.many, /你忘了调用 todo_report/);
