@@ -184,7 +184,8 @@ test('tool descriptions use defined task terminology instead of runtime jargon',
   assert.match(TOOL_PROMPTS.todo_write.description, /及时进行 reorder 修改未完成的 tasks/);
   assert.match(TOOL_PROMPTS.todo_write.parameters.finish, /finish 和 start 应当尽量成对进行/);
   assert.match(TOOL_PROMPTS.todo_write.parameters.start, /上一个进行中的 task 必须已完成/);
-  assert.match(TOOL_PROMPTS.todo_report.description, /必须同时进行 todo_report/);
+  assert.match(TOOL_PROMPTS.todo_report.description, /必须同时调用 todo_report/);
+  assert.match(TOOL_PROMPTS.todo_report.description, /顺序必须排在第一/);
   assert.match(TOOL_PROMPTS.todo_report.description, /仅调用其他 todo 工具或最终回复时例外/);
   assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /多步骤临时问题/);
   assert.match(TOOL_PROMPTS.todo_report.parameters.inIssue, /持续输出 true/);
