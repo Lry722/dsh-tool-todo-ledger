@@ -74,9 +74,12 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
 
 /**
  * Classify one tool execution against the current todo plan.
- * A work step needs an in-progress main task and one successful `todo_report`
- * issued before the other tool calls. Missing or failed reports are exemptible;
- * malformed steps and plans without an active task remain hard violations.
+ * A work step needs an in-progress main task and a `todo_report` somewhere in
+ * the same assistant message. Report position and count are not enforced: a
+ * report that appears after the guarded action has not run yet, so the action is
+ * admitted provisionally and later steps judge whether it was recorded. Missing
+ * or failed reports are exemptible; plans without an active task stay hard
+ * violations.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's tool calls.
  * @param execution - the execution being guarded; `rootCallId` identifies the
@@ -89,30 +92,27 @@ export function stepCoverage(state, message, execution) {
   // Calls outside the tracked assistant step cannot be model actions; leave them unguarded.
   if (!root) return { outcome: 'exempt' };
 
-  const reports = calls.filter((call) => call.name === 'todo_report');
-  const rootIndex = calls.indexOf(root);
-
-  if (root.name === 'todo_report') {
-    if (reports.length !== 1) return { outcome: 'blocked', reason: GUARD_MESSAGES.duplicateReport };
-    const firstWork = calls.findIndex((call) => !EXEMPT_TOOLS.has(call.name));
-    if (firstWork === -1) return { outcome: 'blocked', reason: GUARD_MESSAGES.standaloneReport };
-    if (firstWork < rootIndex) return { outcome: 'blocked', reason: GUARD_MESSAGES.lateReport };
-    return { outcome: 'exempt' };
-  }
-
+  // Reporting tools never block each other: standalone or repeated reports are tolerated.
   if (EXEMPT_TOOLS.has(root.name)) return { outcome: 'exempt' };
 
   const task = inProgressTask(state);
   if (!task) {
     return { outcome: 'blocked', reason: GUARD_MESSAGES.noActiveTask };
   }
-  if (reports.length > 1) return { outcome: 'blocked', reason: GUARD_MESSAGES.duplicateReport };
+
+  const reports = calls.filter((call) => call.name === 'todo_report');
   if (reports.length === 0) return { outcome: 'uncovered', coverage: 'missing' };
-  if (calls.indexOf(reports[0]) > rootIndex) {
-    return { outcome: 'blocked', reason: GUARD_MESSAGES.lateReport };
+  if (reports.some((report) => reportRecorded(task, String(report.id)))) {
+    return { outcome: 'covered' };
   }
-  if (!reportRecorded(task, String(reports[0].id))) return { outcome: 'uncovered', coverage: 'failed' };
-  return { outcome: 'covered' };
+
+  const rootIndex = calls.indexOf(root);
+  // A report later in the same message cannot be recorded yet; let the action run
+  // and verify the report in the following step instead of rejecting the whole step.
+  if (reports.some((report) => calls.indexOf(report) > rootIndex)) {
+    return { outcome: 'provisional' };
+  }
+  return { outcome: 'uncovered', coverage: 'failed' };
 }
 
 function steerCoverageWarning(agent, text) {
@@ -191,7 +191,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       budget.reset();
     }
     if (coverage.outcome === 'blocked') return coverage.reason;
-    if (coverage.outcome === 'covered') return undefined;
+    if (coverage.outcome === 'covered' || coverage.outcome === 'provisional') return undefined;
     const admission = budget.admit();
     if (!admission.allowed) {
       return GUARD_MESSAGES.budgetExhausted;
@@ -202,6 +202,8 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
 
   return agent.ctx.tools.guard((execution) => {
     if (!execution.agent) return undefined;
+    // Reports are always admitted; invalid arguments are reported by the tool itself.
+    if (execution.name === 'todo_report') return undefined;
     try {
       const state = ctx.sessionProjections.stateOf(execution.agent.session, 'todoLedger');
       const message = stepOf(execution.agent.session);

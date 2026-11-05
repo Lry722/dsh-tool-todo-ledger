@@ -68,18 +68,14 @@ test('todo-only steps need no report and remain exempt', () => {
   assert.equal(stepCoverage(undefined, step, execution('todo_write-call')).outcome, 'exempt');
 });
 
-test('todo_report must accompany an action tool', () => {
+test('todo_report is lenient about position and company', () => {
   for (const step of [
     message(call('todo_report')),
     message(call('todo_report'), call('todo_read')),
+    message(call('bash'), call('todo_report')),
   ]) {
-    assert.match(
-      stepCoverage(undefined, step, execution('todo_report-call')).reason,
-      /不能单独调用/,
-    );
+    assert.equal(stepCoverage(undefined, step, execution('todo_report-call')).outcome, 'exempt');
   }
-  const accompanied = message(call('todo_report'), call('bash'));
-  assert.equal(stepCoverage(undefined, accompanied, execution('todo_report-call')).outcome, 'exempt');
 });
 
 test('work requires an in-progress main task', () => {
@@ -88,7 +84,7 @@ test('work requires an in-progress main task', () => {
   assert.equal(stepCoverage(reportedLedger(), step, execution('bash-call')).outcome, 'covered');
 });
 
-test('coverage separates missing and failed reports from structural errors', () => {
+test('coverage separates missing and failed reports from pending reports', () => {
   const missing = message(call('bash'));
   assert.deepEqual(stepCoverage(reportedLedger(), missing, execution('bash-call')), {
     outcome: 'uncovered',
@@ -105,13 +101,19 @@ test('coverage separates missing and failed reports from structural errors', () 
     coverage: 'failed',
   });
 
-  const late = message(call('bash'), call('todo_report'));
-  assert.match(stepCoverage(reportedLedger(), late, execution('bash-call')).reason, /必须排在/);
-  assert.match(stepCoverage(reportedLedger(), late, execution('todo_report-call')).reason, /必须排在/);
+  const late = message(call('bash'), call('todo_report', 'late-report'));
+  assert.deepEqual(stepCoverage(reportedLedger(), late, execution('bash-call')), {
+    outcome: 'provisional',
+  });
+  assert.equal(stepCoverage(reportedLedger(), late, execution('late-report')).outcome, 'exempt');
 
   const duplicated = message(call('todo_report'), call('todo_report', 'second-report'), call('bash'));
-  assert.match(stepCoverage(reportedLedger(), duplicated, execution('bash-call')).reason, /只能调用一次/);
-  assert.match(stepCoverage(reportedLedger(), duplicated, execution('todo_report-call')).reason, /只能调用一次/);
+  assert.equal(stepCoverage(reportedLedger(), duplicated, execution('bash-call')).outcome, 'covered');
+  assert.equal(stepCoverage(reportedLedger('second-report'), duplicated, execution('bash-call')).outcome, 'covered');
+  assert.deepEqual(stepCoverage(inProgressLedger(), duplicated, execution('bash-call')), {
+    outcome: 'uncovered',
+    coverage: 'failed',
+  });
 });
 
 test('calls outside the tracked assistant step are exempt', () => {
@@ -300,18 +302,28 @@ test('a report on a finished task still resets the budget after a task switch', 
   assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
 });
 
-test('plan gaps and malformed steps remain hard blocks', () => {
+test('a plan without an in-progress task remains a hard block', () => {
   const h = guardHarness();
   h.setState(emptyLedger());
   h.setStep(message(call('todo_report'), call('bash')));
   assert.match(h.run(), /没有进行中的任务/);
+  assert.equal(h.run('todo_report-call', 'todo_report'), undefined);
+});
 
-  h.setState(reportedLedger());
-  h.setStep(message(call('bash'), call('todo_report')));
-  assert.match(h.run(), /必须排在/);
+test('a late report is admitted and leaves no steer behind', () => {
+  const h = guardHarness();
+  h.setStep(message(call('bash'), call('todo_report', 'late-report')));
+  assert.equal(h.run(), undefined);
+  assert.equal(h.warnings.length, 0);
+});
 
-  h.setStep(message(call('todo_report')));
-  assert.match(h.run('todo_report-call', 'todo_report'), /不能单独调用/);
+test('late reports never consume the exemption budget', () => {
+  const h = guardHarness();
+  for (let step = 0; step < 10; step += 1) {
+    h.setStep(message(call('bash'), call('todo_report', `late-${step}`)));
+    assert.equal(h.run(), undefined);
+  }
+  assert.equal(h.warnings.length, 0);
 });
 
 test('a projection failure notifies the user and lets the call continue', () => {

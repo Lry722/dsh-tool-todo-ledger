@@ -34,11 +34,6 @@ test('external prompts load and interpolate review data verbatim', () => {
 });
 
 test('runtime messages load and interpolate prompt placeholders', () => {
-  assert.equal(GUARD_MESSAGES.duplicateReport, '单个步骤只能调用一次 todo_report。');
-  assert.equal(
-    GUARD_MESSAGES.standaloneReport,
-    'todo_report 不能单独调用，必须与同一步骤中的动作工具一起调用。',
-  );
   assert.match(GUARD_MESSAGES.coverageWarning.one, /最后一次警告/);
   assert.match(GUARD_MESSAGES.coverageWarning.many, /你忘了调用 todo_report/);
   // Coverage warnings demand the missing report; they must not announce how much
