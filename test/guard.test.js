@@ -221,7 +221,7 @@ test('a recorded report resets the exemption budget', () => {
   assert.match(budget.admit().warning, /你忘了调用 todo_report/);
 });
 
-function guardHarness(initialState = reportedLedger(), budget = createCoverageBudget()) {
+function guardHarness(initialState = reportedLedger(), budget = createCoverageBudget(), steerOverride) {
   let state = initialState;
   let step;
   let guard;
@@ -241,6 +241,7 @@ function guardHarness(initialState = reportedLedger(), budget = createCoverageBu
   const agent = {
     session: { id: 'session-1' },
     steer(input) {
+      if (steerOverride) return steerOverride(input, warnings);
       warnings.push(input);
     },
     ctx: {
@@ -341,6 +342,27 @@ test('omitting the continued issue clears the steer for a later relapse', () => 
   h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated);
   assert.equal(h.warnings.length, 2);
   assert.match(h.warnings[1].content[0].text, /省略 issue/);
+});
+
+test('a failed steer is retried on the next duplicate report', () => {
+  let attempts = 0;
+  const h = guardHarness(issueReportedLedger(), createCoverageBudget(), (input, warnings) => {
+    attempts += 1;
+    // A transient delivery failure must not consume the once-per-streak steer.
+    if (attempts === 1) throw new Error('steering unavailable');
+    warnings.push(input);
+  });
+  h.setStep(message(call('todo_report'), call('bash')));
+  const repeated = { index: 1, inIssue: true, issue: '查询 DSH API' };
+
+  assert.equal(h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated), undefined);
+  assert.equal(attempts, 1);
+  assert.equal(h.warnings.length, 0);
+
+  assert.equal(h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated), undefined);
+  assert.equal(attempts, 2);
+  assert.equal(h.warnings.length, 1);
+  assert.match(h.warnings[0].content[0].text, /省略 issue/);
 });
 
 test('a repeated issue in a PTC report steers the same way', () => {

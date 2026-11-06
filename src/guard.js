@@ -179,15 +179,21 @@ export function stepCoverage(state, message, execution) {
   return { outcome: 'uncovered', coverage: 'failed' };
 }
 
+/**
+ * Deliver one steer when the agent accepts it.
+ * @returns whether the steer was accepted, so callers can retry transient
+ *   failures instead of treating them as delivered.
+ */
 function steerAgent(agent, text) {
-  if (typeof agent?.steer !== 'function') return;
+  if (typeof agent?.steer !== 'function') return false;
   try {
     agent.steer(createUserMessage({
       content: [{ type: 'text', text }],
       source: { kind: 'todo-ledger' },
     }));
+    return true;
   } catch (_error) {
-    return;
+    return false;
   }
 }
 
@@ -289,11 +295,10 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       repeatedIssueSteered?.taskId === repeated.taskId
       && repeatedIssueSteered.issue === repeated.issue
     ) return;
-    repeatedIssueSteered = repeated;
-    steerAgent(
-      execution.agent ?? guardedAgent,
-      fillPrompt(GUARD_MESSAGES.repeatedIssue, { issue: repeated.issue }),
-    );
+    const text = fillPrompt(GUARD_MESSAGES.repeatedIssue, { issue: repeated.issue });
+    // Record the correction only after the steer is delivered; a transient
+    // failure must not suppress the reminder for the rest of the issue streak.
+    if (steerAgent(execution.agent ?? guardedAgent, text)) repeatedIssueSteered = repeated;
   }
 
   /**
