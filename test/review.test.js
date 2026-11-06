@@ -94,3 +94,33 @@ test('malformed reviewer output is rejected for the non-blocking tool wrapper', 
   const ctx = contextReturning('not json', []);
   await assert.rejects(reviewTodoWrite(ctx, agent, { todos: ['Task'] }, signal), /JSON/);
 });
+
+test('a stalled reviewer is aborted by the timeout', async () => {
+  const agent = agentWithInstructions([{ path: 'AGENTS.md', text: 'Plan carefully.' }]);
+  let captured;
+  const ctx = {
+    llm: {
+      stream(input) {
+        captured = input;
+        return (async function* () {
+          if (input.signal.aborted) throw input.signal.reason;
+          await new Promise((_resolve, reject) => {
+            input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true });
+          });
+        })();
+      },
+    },
+  };
+  // AbortSignal.timeout() uses an unref'd timer; keep the test process alive
+  // until it fires instead of letting the runner exit with a pending promise.
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    await assert.rejects(
+      reviewTodoWrite(ctx, agent, { todos: ['Task'] }, signal, 50),
+      (error) => error?.name === 'TimeoutError',
+    );
+  } finally {
+    clearTimeout(keepAlive);
+  }
+  assert.equal(captured.signal.aborted, true);
+});

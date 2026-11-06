@@ -59,7 +59,7 @@ async function readReview(stream) {
   return parseReview(final.text);
 }
 
-export async function reviewTodoWrite(ctx, agent, pending, signal) {
+export async function reviewTodoWrite(ctx, agent, pending, signal, timeoutMs = REVIEW_TIMEOUT_MS) {
   const instructions = activeProjectInstructions(agent);
   if (instructions.length === 0) {
     return { status: 'passed', message: reviewResult('noInstructions') };
@@ -68,7 +68,7 @@ export async function reviewTodoWrite(ctx, agent, pending, signal) {
   const route = header?.config;
   if (!route?.provider || !route?.model) throw reviewError('noRoute');
   const userText = reviewRequest(instructions, pending);
-  const timeoutSignal = AbortSignal.timeout(REVIEW_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return readReview(ctx.llm.stream({
     provider: route.provider,
     model: route.model,

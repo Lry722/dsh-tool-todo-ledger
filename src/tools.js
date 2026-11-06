@@ -15,6 +15,17 @@ import { reviewTodoWrite } from './review.js';
 import { TOOL_MESSAGES, TOOL_PROMPTS, fillPrompt, reviewResult } from './prompts.js';
 
 const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
+// Exports are private temporary files; remove them even when the caller never
+// deletes the returned path. The timer is unref'd so it cannot hold the host open.
+export const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function scheduleExportCleanup(directory, ttlMs = EXPORT_TTL_MS) {
+  const timer = setTimeout(() => {
+    void rm(directory, { recursive: true, force: true }).catch(() => {});
+  }, ttlMs);
+  timer.unref?.();
+  return timer;
+}
 
 function textOutput(_args, value) {
   return [{ type: 'text', text: JSON.stringify(value, null, 2) }];
@@ -68,6 +79,7 @@ async function exportHistory(ctx, agent) {
     await rm(directory, { recursive: true, force: true });
     throw error;
   }
+  scheduleExportCleanup(directory);
   return { path, eventCount: events.length };
 }
 

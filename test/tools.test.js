@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname } from 'node:path';
-import { createLedgerTools } from '../src/tools.js';
+import { basename, dirname, join } from 'node:path';
+import { createLedgerTools, scheduleExportCleanup } from '../src/tools.js';
 import {
   LEDGER_VERSION,
   emptyLedger,
@@ -399,4 +399,10 @@ test('a failed composite call appends no partial operations', async () => {
     { index: 1, content: 'One', status: 'in_progress' },
     { index: 2, content: 'Two', status: 'pending' },
   ]);
+});
+test('export directories are removed after their TTL', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'todo-ledger-ttl-'));
+  scheduleExportCleanup(directory, 20);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await assert.rejects(stat(directory), (error) => error.code === 'ENOENT');
 });

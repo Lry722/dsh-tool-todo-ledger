@@ -1,7 +1,6 @@
 import { LEDGER_MESSAGES, fillPrompt } from './prompts.js';
 
 export const LEDGER_VERSION = 1;
-export const TODO_STATUSES = ['pending', 'in_progress', 'completed'];
 
 function ledgerError(key, values) {
   return new Error(fillPrompt(LEDGER_MESSAGES[key], values));
