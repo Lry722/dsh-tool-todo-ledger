@@ -44,6 +44,11 @@ test('runtime messages load and interpolate prompt placeholders', () => {
   // of the exemption allowance is left.
   assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.one, /\{\{/);
   assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.many, /\{\{/);
+  assert.match(GUARD_MESSAGES.repeatedIssue, /\{\{issue\}\}/);
+  const repeatedIssue = fillPrompt(GUARD_MESSAGES.repeatedIssue, { issue: '查询 API' });
+  assert.match(repeatedIssue, /查询 API/);
+  assert.match(repeatedIssue, /省略 issue/);
+  assert.doesNotMatch(repeatedIssue, /\{\{/);
   // Assert interpolation behavior instead of the current language so that
   // localizing ledger messages never breaks this test.
   assert.match(LEDGER_MESSAGES.taskIndexRange, /\{\{tool\}\}/);

@@ -5,6 +5,7 @@ import {
   inProgressTask,
   installReportGuard,
   installStepTracker,
+  repeatedIssue,
   stepCoverage,
   stepToolCalls,
 } from '../src/guard.js';
@@ -49,6 +50,28 @@ function reportedLedger(callId = 'todo_report-call') {
       },
     },
   });
+}
+
+function reportIssue(state, issue = '查询 DSH API', callId = 'issue-report-call', seq = 10) {
+  return foldLedgerEvent(state, {
+    type: 'todo/write',
+    seq,
+    time: seq * 100,
+    data: {
+      todos: legacyTodos(state),
+      ledger: {
+        version: LEDGER_VERSION,
+        operation: 'report',
+        taskId: 't1',
+        callId,
+        report: { index: 1, inIssue: true, issue },
+      },
+    },
+  });
+}
+
+function issueReportedLedger(issue = '查询 DSH API', callId = 'issue-report-call') {
+  return reportIssue(inProgressLedger(), issue, callId);
 }
 
 function addReport(state, seq, callId) {
@@ -241,11 +264,99 @@ function guardHarness(initialState = reportedLedger(), budget = createCoverageBu
     fire(type, event) {
       listeners.get(type)?.(agent.session, event);
     },
-    run(rootCallId = 'bash-call', name = 'bash', callId = rootCallId) {
-      return guard({ agent, rootCallId, name, callId });
+    run(rootCallId = 'bash-call', name = 'bash', callId = rootCallId, args) {
+      return guard({ agent, rootCallId, name, callId, arguments: args });
     },
   };
 }
+
+test('repeatedIssue only matches an explicit continuation of the active issue', () => {
+  const state = issueReportedLedger();
+  const report = (args) => repeatedIssue(state, { arguments: args });
+  assert.deepEqual(report({ index: 1, inIssue: true, issue: '查询 DSH API' }), {
+    taskId: 't1',
+    issue: '查询 DSH API',
+  });
+  assert.deepEqual(report({ index: 1, inIssue: true, issue: ' 查询 DSH API ' }), {
+    taskId: 't1',
+    issue: '查询 DSH API',
+  });
+  // An omitted name is the documented way to continue an issue.
+  assert.equal(report({ index: 1, inIssue: true }), undefined);
+  assert.equal(report({ index: 1, inIssue: true, issue: '另一个 issue' }), undefined);
+  assert.equal(report({ index: 1, inIssue: false }), undefined);
+  assert.equal(report(undefined), undefined);
+  assert.equal(
+    repeatedIssue(reportedLedger(), { arguments: { inIssue: true, issue: '查询 DSH API' } }),
+    undefined,
+  );
+  assert.equal(
+    repeatedIssue(emptyLedger(), { arguments: { inIssue: true, issue: '查询 DSH API' } }),
+    undefined,
+  );
+
+  // Reorder keeps t1 in progress but clears the continuation target; the next
+  // issue must be named even when it matches the old name.
+  let reordered = startLedger(writeLedger(emptyLedger(), ['Task', 'Next']).state, 1).state;
+  reordered = reportIssue(reordered);
+  reordered = writeLedger(reordered, ['Replacement'], 2).state;
+  assert.equal(reordered.lastReportTaskId, null);
+  assert.equal(inProgressTask(reordered).id, 't1');
+  assert.equal(
+    repeatedIssue(reordered, { arguments: { inIssue: true, issue: '查询 DSH API' } }),
+    undefined,
+  );
+});
+
+test('a repeated active issue gets one steer that asks to omit the name', () => {
+  const h = guardHarness(issueReportedLedger());
+  h.setStep(message(call('todo_report'), call('bash')));
+  const repeated = { index: 1, inIssue: true, issue: '查询 DSH API' };
+
+  assert.equal(h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated), undefined);
+  assert.equal(h.warnings.length, 1);
+  assert.match(h.warnings[0].content[0].text, /查询 DSH API/);
+  assert.match(h.warnings[0].content[0].text, /省略 issue/);
+
+  // The report still runs; only one steer per issue streak is sent.
+  assert.equal(h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated), undefined);
+  assert.equal(h.warnings.length, 1);
+});
+
+test('omitting the continued issue clears the steer for a later relapse', () => {
+  const h = guardHarness(issueReportedLedger());
+  h.setStep(message(call('todo_report'), call('bash')));
+  const repeated = { index: 1, inIssue: true, issue: '查询 DSH API' };
+
+  h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated);
+  assert.equal(h.warnings.length, 1);
+
+  // Compliance: continue the same issue without restating its name.
+  assert.equal(
+    h.run('todo_report-call', 'todo_report', 'todo_report-call', { index: 1, inIssue: true }),
+    undefined,
+  );
+  assert.equal(h.warnings.length, 1);
+
+  h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated);
+  assert.equal(h.warnings.length, 2);
+  assert.match(h.warnings[1].content[0].text, /省略 issue/);
+});
+
+test('a repeated issue in a PTC report steers the same way', () => {
+  const h = guardHarness(issueReportedLedger());
+  h.setStep(message(call('run_code', 'run_code-call')));
+  assert.equal(
+    h.run('run_code-call', 'todo_report', 'run_code-call:ptc:1', {
+      index: 1,
+      inIssue: true,
+      issue: '查询 DSH API',
+    }),
+    undefined,
+  );
+  assert.equal(h.warnings.length, 1);
+  assert.match(h.warnings[0].content[0].text, /省略 issue/);
+});
 
 test('missing reports are exempted with one steer per warning round', () => {
   const h = guardHarness();

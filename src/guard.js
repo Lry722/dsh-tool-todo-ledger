@@ -19,6 +19,34 @@ export function inProgressTask(state) {
   return undefined;
 }
 
+function issueName(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+/**
+ * Whether a `todo_report` restates the issue it is continuing instead of
+ * omitting the optional name. Continuation needs no name, so repeating the
+ * active one only spends context; the guard steers once and still admits the
+ * report. Trimmed equality keeps harmless whitespace from hiding a repeat.
+ * @param state - the current `todoLedger` projection.
+ * @param execution - the report execution whose parsed arguments are inspected.
+ * @returns the repeated task and issue name, or undefined.
+ */
+export function repeatedIssue(state, execution) {
+  const args = execution?.arguments;
+  if (args === null || typeof args !== 'object' || args.inIssue !== true) return undefined;
+  const issue = issueName(args.issue);
+  if (issue === undefined) return undefined;
+  const task = inProgressTask(state);
+  // A reorder keeps an in-progress task but clears the continuation target, so
+  // its next issue must be named even when the name matches an older report.
+  if (state.lastReportTaskId !== task?.id) return undefined;
+  const previous = task.reports.at(-1);
+  if (previous?.inIssue !== true) return undefined;
+  if (issueName(previous.issue) !== issue) return undefined;
+  return { taskId: task.id, issue };
+}
+
 function reportRecorded(task, callId) {
   return task.reports?.at(-1)?.callId === callId;
 }
@@ -151,7 +179,7 @@ export function stepCoverage(state, message, execution) {
   return { outcome: 'uncovered', coverage: 'failed' };
 }
 
-function steerCoverageWarning(agent, text) {
+function steerAgent(agent, text) {
   if (typeof agent?.steer !== 'function') return;
   try {
     agent.steer(createUserMessage({
@@ -216,6 +244,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   let observedMessage;
   let messageAdmission;
   let lastReportToken;
+  let repeatedIssueSteered;
   let failureReported = false;
   // PTC programs have no message-level call list, so coverage is judged once
   // per program after its nested dispatches settle.
@@ -239,13 +268,32 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       observedMessage = message;
       messageAdmission = budget.admit();
       if (coverage.coverage === 'missing' && messageAdmission.warning !== undefined) {
-        steerCoverageWarning(guardedAgent, messageAdmission.warning);
+        steerAgent(guardedAgent, messageAdmission.warning);
       }
     }
     if (!messageAdmission.allowed) {
       return GUARD_MESSAGES.budgetExhausted;
     }
     return undefined;
+  }
+
+  function steerRepeatedIssue(state, execution, guardedAgent) {
+    const repeated = repeatedIssue(state, execution);
+    if (repeated === undefined) {
+      repeatedIssueSteered = undefined;
+      return;
+    }
+    // One steer per issue streak is enough; a compliant report (one that omits
+    // the name) clears the marker so a later relapse is corrected again.
+    if (
+      repeatedIssueSteered?.taskId === repeated.taskId
+      && repeatedIssueSteered.issue === repeated.issue
+    ) return;
+    repeatedIssueSteered = repeated;
+    steerAgent(
+      execution.agent ?? guardedAgent,
+      fillPrompt(GUARD_MESSAGES.repeatedIssue, { issue: repeated.issue }),
+    );
   }
 
   /**
@@ -291,9 +339,9 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       const admission = budget.admit();
       if (!admission.allowed) {
         ptcPendingReport = true;
-        steerCoverageWarning(agent, GUARD_MESSAGES.ptcPendingReport);
+        steerAgent(agent, GUARD_MESSAGES.ptcPendingReport);
       } else if (admission.warning !== undefined) {
-        steerCoverageWarning(agent, admission.warning);
+        steerAgent(agent, admission.warning);
       }
     } catch (_error) {
       // Observation is best-effort; the guard must not fail a tool call.
@@ -313,7 +361,9 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       // message; only the step structure decides whether a report may run.
       if (execution.name === 'todo_report') {
         const coverage = stepCoverage(state, message, execution);
-        return coverage.outcome === 'blocked' ? coverage.reason : undefined;
+        if (coverage.outcome === 'blocked') return coverage.reason;
+        steerRepeatedIssue(state, execution, execution.agent);
+        return undefined;
       }
       // Every action re-reads the current state: an earlier todo_write in the
       // same message may finish the task or switch the active one.
