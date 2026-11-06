@@ -333,6 +333,53 @@ test('default view starts at the last completed task', () => {
   });
 });
 
+test('the default view keeps unfinished legacy work before a completed task', () => {
+  const legacy = foldLedgerEvent(emptyLedger(), {
+    type: 'todo/write', seq: 1, time: 100,
+    data: { todos: [{ content: 'A', status: 'pending' }, { content: 'B', status: 'completed' }] },
+  });
+  assert.deepEqual(currentView(legacy), {
+    tasks: [
+      { index: 1, content: 'A', status: 'pending' },
+      { index: 2, content: 'B', status: 'completed' },
+    ],
+  });
+  assert.deepEqual(ledgerView(legacy).current.map((task) => task.content), ['A', 'B']);
+
+  const result = updateLedger(legacy, { todos: ['C'] });
+  assert.deepEqual(result.started, { index: 1, taskId: 'legacy-1-1', status: 'in_progress' });
+  assert.deepEqual(currentView(result.state), {
+    tasks: [
+      { index: 1, content: 'A', status: 'in_progress' },
+      { index: 2, content: 'B', status: 'completed' },
+      { index: 3, content: 'C', status: 'pending' },
+    ],
+  });
+  assert.deepEqual(ledgerView(result.state).current.map((task) => task.content), ['A', 'B', 'C']);
+});
+
+test('the default view starts at the last completed task of an ordered plan', () => {
+  let state = planned();
+  state = startLedger(state, 1).state;
+  state = finishLedger(state, 1).state;
+  state = startLedger(state, 2).state;
+  assert.deepEqual(currentView(state), {
+    tasks: [
+      { index: 1, content: 'Confirm requirements', status: 'completed' },
+      { index: 2, content: 'Implement ledger', status: 'in_progress' },
+      { index: 3, content: 'Add tests', status: 'pending' },
+    ],
+  });
+
+  state = finishLedger(state, 2).state;
+  state = startLedger(state, 3).state;
+  state = finishLedger(state, 3).state;
+  assert.deepEqual(currentView(state), {
+    tasks: [{ index: 3, content: 'Add tests', status: 'completed' }],
+  });
+  assert.deepEqual(currentView(emptyLedger()), { tasks: [] });
+});
+
 test('event folding reconstructs plan, void history and reports', () => {
   const write = writeLedger(emptyLedger(), ['One', 'Two']);
   let state = foldLedgerEvent(emptyLedger(), {

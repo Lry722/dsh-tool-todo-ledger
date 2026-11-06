@@ -361,14 +361,25 @@ export function numberedPlan(state) {
 }
 
 export function currentView(state) {
-  let first = 0;
+  let lastCompleted = -1;
+  let firstNonCompleted = -1;
   for (let index = 0; index < state.currentIds.length; index += 1) {
     const task = nodeById(state, state.currentIds[index]);
-    if (task.status === 'completed') first = index;
+    if (task.status === 'completed') {
+      lastCompleted = index;
+    } else if (firstNonCompleted < 0) {
+      firstNonCompleted = index;
+    }
   }
-  const tasks = state.currentIds.slice(first).map((id, offset) => {
+  // Older full-list snapshots may hold unfinished work before a completed task.
+  // Starting at the last completion would hide that work, so in that case start
+  // at the earliest unfinished task instead.
+  const start = lastCompleted < 0
+    ? 0
+    : (firstNonCompleted < 0 ? lastCompleted : Math.min(lastCompleted, firstNonCompleted));
+  const tasks = state.currentIds.slice(start).map((id, offset) => {
     const task = nodeById(state, id);
-    const result = { index: first + offset + 1, content: task.content, status: task.status };
+    const result = { index: start + offset + 1, content: task.content, status: task.status };
     if (task.status === 'in_progress' && state.lastReportTaskId === id && task.reports.length > 0) {
       const latest = task.reports.at(-1);
       if (latest.inIssue) result.issue = latest.issue;

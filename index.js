@@ -9,7 +9,9 @@ export const inject = ['agents', 'llm', 'sessionProjections', 'tools'];
 export const Config = z.object({ reviewEnabled: z.boolean().default(false).volatile() });
 
 const reportSchema = zod.object({
-  index: zod.number().int(),
+  // Legacy `localTask` reports can be replayed without an index; accepting the
+  // absent field keeps the schema aligned with the states the fold can produce.
+  index: zod.number().int().optional(),
   inIssue: zod.boolean(),
   issue: zod.string().optional(),
   callId: zod.string().optional(),
