@@ -166,6 +166,8 @@ guard 读取状态或分类调用时出错，会向会话注入一条 notice 报
 - `ledger`：保存增量操作，包括追加、重排、启动、完成和上报。每个任务节点都带内部稳定 ID，用于历史回放。重排保留旧节点及其中记录的上报内容。
 - 一次组合 `todo_write` 调用按实际执行顺序追加多条 `todo/write` 事件，各操作共享工具调用上下文。启动操作会记录其所属 `todo_write` 调用的 call ID，供 dock 导航使用。
 - `todoLedger`：Host projection，从事件日志重建状态，并以该日志为唯一事实源。除任务节点外，还保存 `currentTurn`、逐 turn 工作集及轮末状态快照。projection `stateVersion` 升级会触发旧缓存重建，不改变 `todo/write` 事件格式或 `LEDGER_VERSION`。旧版 `localTask` / `inLocalTask` 上报在回放时转换为 `issue` / `inIssue`。
+- `todoLedgerHistory`：只保留原始 `todo/write` 事件的 Host projection，供 `todo_read({full: true})` 导出。导出不再调用已废弃的 `session.snapshotEvents()` 同步读取，随 projection 回放一起覆盖恢复的会话。
+- 前置审查读取当前生效的 AGENTS.md 时使用 `session.deriveMessages()`，与模型可见 surface 保持一致，也不再调用 `session.eventAt()`。
 - 安装前的官方全量 `todo/write` 事件可作为旧版快照回放。
 
 ## 任务 dock 与右侧边栏
@@ -252,6 +254,7 @@ guard 读取状态或分类调用时出错，会向会话注入一条 notice 报
 
 - `src/ledger.js`：核心状态机与组合状态流转。
 - `src/tools.js`：Cordis 工具与历史导出。
+- `src/history.js`：原始 `todo/write` 事件的导出 projection。
 - `src/review.js`：独立模型审查。
 - `src/guard.js`：step 覆盖追踪、覆盖校验与工具硬性拦截。
 - `src/prompts.js`：加载提示词资源并填充模板占位符。

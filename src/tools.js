@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { HISTORY_PROJECTION_KEY } from './history.js';
 import {
   LEDGER_VERSION,
   currentView,
@@ -34,6 +35,12 @@ function owningState(ctx, exec, toolName) {
   return state;
 }
 
+function owningHistory(ctx, session, toolName) {
+  const events = ctx.sessionProjections.stateOf(session, HISTORY_PROJECTION_KEY);
+  if (!events) throw new Error(toolMessage('projectionUnavailable', { tool: toolName }));
+  return events;
+}
+
 function appendOperation(exec, todos, ledger) {
   exec.agent.session.append('todo/write', {
     todos,
@@ -44,9 +51,7 @@ function appendOperation(exec, todos, ledger) {
 async function exportHistory(ctx, agent) {
   const state = owningState(ctx, { agent }, 'todo_read');
   const session = agent.session;
-  const events = session.snapshotEvents()
-    .filter((event) => event.type === 'todo/write')
-    .map((event) => ({ seq: event.seq, time: event.time, data: event.data }));
+  const events = owningHistory(ctx, session, 'todo_read');
   const document = {
     format: 'dsh-todo-ledger-history/v1',
     sessionId: String(session.id),

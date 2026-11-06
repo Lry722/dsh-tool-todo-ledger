@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check index.js && node --check client.js && node --check src/ledger.js && node --check src/guard.js && node --check src/prompts.js && node --check src/review.js && node --check src/tools.js"
+    "check": "node --check index.js && node --check client.js && node --check src/ledger.js && node --check src/guard.js && node --check src/history.js && node --check src/prompts.js && node --check src/review.js && node --check src/tools.js"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.5",

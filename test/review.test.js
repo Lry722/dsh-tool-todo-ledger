@@ -3,22 +3,19 @@ import assert from 'node:assert/strict';
 import { activeProjectInstructions, reviewTodoWrite } from '../src/review.js';
 
 function agentWithInstructions(instructions, stream) {
-  const events = new Map();
-  instructions.forEach((instruction, index) => events.set(index + 1, {
-    type: 'user/message',
-    data: {
-      source: { kind: 'agent-instructions', path: instruction.path },
-      content: [{ type: 'text', text: instruction.text }],
-    },
+  const messages = instructions.map((instruction) => ({
+    role: 'user',
+    source: { kind: 'agent-instructions', path: instruction.path },
+    content: [{ type: 'text', text: instruction.text }],
   }));
-  events.set(99, {
-    type: 'user/message',
-    data: { source: { kind: 'human' }, content: [{ type: 'text', text: 'Not an AGENTS instruction' }] },
+  messages.push({
+    role: 'user',
+    source: { kind: 'human' },
+    content: [{ type: 'text', text: 'Not an AGENTS instruction' }],
   });
   return {
     session: {
-      surface: { nodes: [...events.keys()] },
-      eventAt: (seq) => events.get(seq),
+      deriveMessages: () => messages,
       requestHeader: () => ({ config: { provider: 'test-provider', model: 'test-model' } }),
     },
   };

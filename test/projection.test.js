@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { apply } from '../index.js';
+import { HISTORY_PROJECTION_KEY } from '../src/history.js';
 import {
   LEDGER_VERSION,
   emptyLedger,
@@ -14,11 +15,11 @@ import {
 } from '../src/ledger.js';
 
 function projectionHarness() {
-  let projection;
+  const projections = new Map();
   const ctx = {
     sessionProjections: {
       register(definition) {
-        projection = definition;
+        projections.set(definition.key, definition);
       },
     },
     on() {},
@@ -29,8 +30,20 @@ function projectionHarness() {
     },
   };
   apply(ctx, { reviewEnabled: false });
+  const projection = projections.get('todoLedger');
   assert.ok(projection, 'apply must register the todoLedger projection');
+  assert.ok(projections.get(HISTORY_PROJECTION_KEY), 'apply must register the history projection');
   return projection;
+}
+
+function historyHarness() {
+  const projections = new Map();
+  apply({
+    sessionProjections: { register: (definition) => projections.set(definition.key, definition) },
+    on() {},
+    agents: { list: () => [] },
+  }, { reviewEnabled: false });
+  return projections.get(HISTORY_PROJECTION_KEY);
 }
 
 function assertParses(schema, value, label) {
@@ -97,4 +110,19 @@ test('new reports keep their index after folding', () => {
 
   assertParses(projection.stateSchema, state, 'new report state');
   assertParses(projection.wire.viewSchema, ledgerView(state), 'new report view');
+});
+
+test('history projection retains only todo/write events without mutating prior state', () => {
+  const projection = historyHarness();
+  let state = projection.init();
+  assert.deepEqual(state, []);
+
+  state = projection.apply(state, { type: 'tool/call', seq: 1, time: 10, data: { callId: 'call-1' } });
+  assert.deepEqual(state, []);
+
+  const data = { todos: [{ content: 'Task', status: 'pending' }], ledger: { version: LEDGER_VERSION } };
+  const next = projection.apply(state, { type: 'todo/write', seq: 2, time: 20, data });
+  assert.deepEqual(next, [{ seq: 2, time: 20, data }]);
+  assert.deepEqual(state, []);
+  assert.equal(projection.stateSchema.safeParse(next).success, true);
 });

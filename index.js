@@ -1,6 +1,7 @@
 import z from '@deepseek-ai/schemastery';
 import { z as zod } from 'zod';
 import { LEDGER_VERSION, emptyLedger, foldLedgerEvent, ledgerView } from './src/ledger.js';
+import { historyProjection } from './src/history.js';
 import { createLedgerTools } from './src/tools.js';
 import { installReportGuard, installStepTracker } from './src/guard.js';
 
@@ -108,6 +109,7 @@ export function apply(ctx, config) {
     wire: { viewSchema: todoViewSchema, view: ledgerView },
     stateVersion: 7,
   });
+  ctx.sessionProjections.register(historyProjection());
   const stepOf = installStepTracker(ctx);
 
   const attached = new Map();

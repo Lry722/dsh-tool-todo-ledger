@@ -6,14 +6,15 @@ const REVIEW_TIMEOUT_MS = 30_000;
 
 export function activeProjectInstructions(agent) {
   const instructions = [];
-  for (const seq of agent.session.surface.nodes) {
-    const event = agent.session.eventAt(seq);
-    if (event?.type !== 'user/message' || event.data.source.kind !== 'agent-instructions') continue;
-    const text = event.data.content
+  // deriveMessages() is the supported surface read: it applies message
+  // projections and surface replacements, and already covers restored sessions.
+  for (const message of agent.session.deriveMessages()) {
+    if (message.role !== 'user' || message.source.kind !== 'agent-instructions') continue;
+    const text = message.content
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('\n');
-    if (text.length > 0) instructions.push({ source: event.data.source, text });
+    if (text.length > 0) instructions.push({ source: message.source, text });
   }
   return instructions;
 }

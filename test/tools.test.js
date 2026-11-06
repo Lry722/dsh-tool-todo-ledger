@@ -14,6 +14,7 @@ import {
   writeLedger,
 } from '../src/ledger.js';
 import { LEDGER_MESSAGES, fillPrompt } from '../src/prompts.js';
+import { HISTORY_PROJECTION_KEY, emptyHistory, recordHistoryEvent } from '../src/history.js';
 
 function ledgerMessage(key, values) {
   return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
@@ -30,16 +31,23 @@ function harness({
   stateAvailable = true,
 } = {}) {
   let state = emptyLedger();
+  let history = emptyHistory();
   let seq = 0;
   let reviewCalls = 0;
   const appended = [];
   const execSignal = signal ?? new AbortController().signal;
-  const events = new Map(instructions.map((text, index) => [index + 1, {
-    type: 'user/message',
-    data: { source: { kind: 'agent-instructions' }, content: [{ type: 'text', text }] },
-  }]));
+  const messages = instructions.map((text) => ({
+    role: 'user',
+    source: { kind: 'agent-instructions' },
+    content: [{ type: 'text', text }],
+  }));
   const ctx = {
-    sessionProjections: { stateOf: () => (stateAvailable ? state : undefined) },
+    sessionProjections: {
+      stateOf(_session, key) {
+        if (key === HISTORY_PROJECTION_KEY) return history;
+        return stateAvailable ? state : undefined;
+      },
+    },
     llm: {
       stream(params) {
         reviewCalls += 1;
@@ -57,14 +65,13 @@ function harness({
   const agent = {
     session: {
       id: 'session-1',
-      surface: { nodes: [...events.keys()] },
-      eventAt: (sequence) => events.get(sequence),
+      deriveMessages: () => messages,
       requestHeader: () => ({ config: { provider: 'test', model: 'test' } }),
-      snapshotEvents: () => [...appended],
       append(type, data) {
         const event = { type, data, seq: ++seq, time: seq * 100 };
         appended.push(event);
         state = foldLedgerEvent(state, event);
+        history = recordHistoryEvent(history, event);
       },
     },
   };
