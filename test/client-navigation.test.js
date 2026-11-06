@@ -182,39 +182,46 @@ test('the sidebar shows no empty state while the projection is still loading', (
   const ctx = createContext('session-1');
   const sidebar = sidebarFor(ctx);
 
-  const current = sidebar.render(() => undefined);
-  assert.ok(!stringsOf(current).includes('currentPlanEmpty'));
-  const section = elementsOf(current).find((element) => element.props?.className === 'todo-ledger-sidebar');
+  const tree = sidebar.render(() => undefined);
+  assert.ok(!stringsOf(tree).includes('historyEmpty'));
+  const section = elementsOf(tree).find((element) => element.props?.className === 'todo-ledger-sidebar');
   assert.equal(section?.props['aria-busy'], true);
-
-  sidebar.uiStates.set('session-1', { view: 'history', selectedTurn: 0 });
-  const history = sidebar.render(() => undefined);
-  assert.ok(!stringsOf(history).includes('historyEmpty'));
 });
 
-test('the sidebar renders empty states only for a loaded empty projection', () => {
+test('the sidebar renders the empty state only for a loaded empty projection', () => {
   const ctx = createContext('session-1');
   const sidebar = sidebarFor(ctx);
   const projection = () => ({ current: [], turns: [], currentTurn: 0 });
 
-  const current = sidebar.render(projection);
-  assert.ok(stringsOf(current).includes('currentPlanEmpty'));
-  const section = elementsOf(current).find((element) => element.props?.className === 'todo-ledger-sidebar');
+  const tree = sidebar.render(projection);
+  assert.ok(stringsOf(tree).includes('historyEmpty'));
+  const section = elementsOf(tree).find((element) => element.props?.className === 'todo-ledger-sidebar');
   assert.equal(section?.props['aria-busy'], undefined);
-
-  sidebar.uiStates.set('session-1', { view: 'history', selectedTurn: 0 });
-  const history = sidebar.render(projection);
-  assert.ok(stringsOf(history).includes('historyEmpty'));
 });
+
+function turnProjection(tasks, turn = 1, open = true) {
+  return {
+    current: [],
+    currentTurn: turn,
+    turns: [{
+      turn,
+      startSeq: 1,
+      open,
+      total: tasks.length,
+      completed: tasks.filter((task) => task.status === 'completed').length,
+      voided: tasks.filter((task) => task.status === 'void').length,
+      preview: tasks[0]?.content ?? '',
+      tasks,
+    }],
+  };
+}
 
 test('task text and the sidebar container use distinct classes', () => {
   const ctx = createContext('session-1');
   const sidebar = sidebarFor(ctx);
-  const tree = sidebar.render(() => ({
-    current: [{ id: 'task-1', index: 1, status: 'in_progress', content: 'Ship the fix', issues: [] }],
-    turns: [],
-    currentTurn: 0,
-  }));
+  const tree = sidebar.render(() => turnProjection([
+    { id: 'task-1', status: 'in_progress', content: 'Ship the fix', issues: [] },
+  ]));
 
   const elements = elementsOf(tree);
   assert.deepEqual(
@@ -227,22 +234,19 @@ test('task text and the sidebar container use distinct classes', () => {
   );
 });
 
-test('tabs identify their panel and expose roving keyboard focus', () => {
+test('the sidebar exposes a single turn pane without tabs', () => {
   const ctx = createContext('session-1');
   const sidebar = sidebarFor(ctx);
   const tree = sidebar.render(() => ({ current: [], turns: [], currentTurn: 0 }));
   const elements = elementsOf(tree);
-  const tablist = elements.find((element) => element.props?.role === 'tablist');
-  const tabs = elements.filter((element) => element.props?.role === 'tab');
-  const panel = elements.find((element) => element.props?.role === 'tabpanel');
-
-  assert.equal(tabs.length, 2);
-  assert.equal(panel.props.id, tabs[0].props['aria-controls']);
-  assert.equal(panel.props.id, tabs[1].props['aria-controls']);
-  assert.equal(panel.props['aria-labelledby'], tabs[0].props.id);
-  assert.deepEqual(tabs.map((tab) => tab.props.tabIndex), [0, -1]);
-  assert.equal(typeof tablist.props.onKeyDown, 'function');
-  assert.equal(tablist.props['aria-label'], 'sidebarTitle');
+  assert.equal(elements.filter((element) => element.props?.role === 'tablist').length, 0);
+  assert.equal(elements.filter((element) => element.props?.role === 'tab').length, 0);
+  const body = elements.find((element) => element.props?.className === 'todo-ledger-sidebar__body');
+  assert.equal(body.props.role, 'region');
+  assert.equal(body.props['aria-label'], 'history');
+  assert.equal(body.props.tabIndex, 0);
+  const section = elements.find((element) => element.props?.className === 'todo-ledger-sidebar');
+  assert.equal(section?.props['aria-label'], 'sidebarTitle');
 });
 
 function manyTurns(count) {
@@ -259,14 +263,14 @@ function manyTurns(count) {
 test('the turn rail renders only a window around the selected turn', () => {
   const ctx = createContext('session-1');
   const sidebar = sidebarFor(ctx);
-  sidebar.uiStates.set('session-1', { view: 'history', selectedTurn: 500 });
+  sidebar.uiStates.set('session-1', { selectedTurn: 500 });
   const turns = manyTurns(500);
   const tree = sidebar.render(() => ({ current: [], turns, currentTurn: 500 }));
   const elements = elementsOf(tree);
   const marks = elements.filter((element) => element.props?.className === 'todo-ledger-sidebar__turn-rail-mark');
   const spacers = elements.filter((element) => element.props?.className === 'todo-ledger-sidebar__turn-rail-spacer');
 
-  // The default selection is the last archived turn, so the window covers the tail.
+  // The selected turn is the tail, so the window covers it.
   assert.equal(marks.length, 120);
   assert.deepEqual(spacers.map((spacer) => spacer.props.style.height), ['3800px']);
 });

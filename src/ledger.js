@@ -611,10 +611,10 @@ export function ledgerView(state) {
 }
 
 export function defaultHistoryTurn(turns) {
+  // The sidebar shows one turn at a time, so land on the most recent turn with
+  // actual work. Empty turns stay reachable but never become the default.
   const nonEmpty = turns.filter((turn) => turn.total > 0);
-  const archived = nonEmpty.filter((turn) => !turn.open);
-  const candidates = archived.length > 0 ? archived : nonEmpty;
-  return (candidates.at(-1) ?? turns.at(-1))?.turn;
+  return (nonEmpty.at(-1) ?? turns.at(-1))?.turn;
 }
 
 export function adjacentTurn(turns, selectedTurn, offset) {

@@ -117,7 +117,7 @@ test('turn history carries unfinished work and freezes each turn-end status', ()
   assert.equal(taskById(first, 't2').status, 'in_progress', 'later completion must not rewrite turn 1');
   assert.equal(taskById(second, 't2').status, 'completed', 'the same task has its own turn 2 status');
   assert.deepEqual(third.tasks.map((task) => [task.id, task.status]), [['t4', 'pending']]);
-  assert.equal(defaultHistoryTurn(view.turns), 2, 'an open non-empty turn does not displace the latest archived turn');
+  assert.equal(defaultHistoryTurn(view.turns), 3, 'the latest non-empty turn is the default, even while it is open');
   assert.deepEqual(view.current.map((task) => [task.index, task.id, task.status]), [
     [1, 't1', 'completed'],
     [2, 't2', 'completed'],
@@ -169,7 +169,7 @@ test('turn zero preserves no-turn and legacy snapshot playback', () => {
   assert.deepEqual(state.turns[0].endStatuses, { 'legacy-1-1': 'completed', 'legacy-1-2': 'pending' });
   assert.deepEqual(state.turns[1].taskIds, ['legacy-1-2']);
   assert.deepEqual(dockTodos(state).map((task) => task.content), ['Legacy pending']);
-  assert.equal(defaultHistoryTurn(ledgerView(state).turns), 0);
+  assert.equal(defaultHistoryTurn(ledgerView(state).turns), 1);
 });
 
 test('open turns use live status while archived turns keep their snapshots', () => {

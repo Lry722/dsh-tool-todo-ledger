@@ -180,10 +180,12 @@ guard 读取状态或分类调用时出错，会向会话注入一条 notice 报
 
 当前 issue 以 `↳` 分支显示。dock 折叠时，当前 issue 位于进度下方；dock 展开时，当前 issue 归属到当前顶层任务。由于状态机只允许一个进行中任务，摘要不再重复显示固定的“1 进行中”。
 
-右侧“任务”标签页通过 `sidebarRightTabs` 和 `sidebar.right.pane.tab` 注册，提供两个视图：
+右侧“任务”标签页通过 `sidebarRightTabs` 和 `sidebar.right.pane.tab` 注册，只提供逐 turn 工作集视图：
 
-- **当前规划**：按全局序号展示完整 `currentIds` 和每个任务的 issue 摘要。进行中任务默认展开当前 issue；其他任务可独立展开历史 issue。展开与启动跳转使用不同控件。
-- **历史记录**：顶部提供编号输入、全量 turn 摘要下拉和较早/较晚按钮，可精确跳转任意空或非空 turn。默认选择最近的非空归档 turn；用户已经选择历史 turn 后，新 turn 不会打断浏览。切换内部视图保留选择，会话切换使用各会话自己的 UI 状态。下方一次只渲染所选 turn 的完整工作集、轮末状态及该 turn 时间范围内的 issue，不使用分批展开入口。
+- 顶部提供全量 turn 摘要下拉和 turn 轨道，可精确跳转任意空或非空 turn。
+- 默认选择最近的非空 turn（含当前开放 turn）；用户已经选择历史 turn 后，新 turn 不会打断浏览。会话切换使用各会话自己的 UI 状态。
+- 下方一次只渲染所选 turn 的完整工作集、轮末状态及该 turn 时间范围内的 issue，不使用分批展开入口。
+- 侧边栏不再单独展示全量 `currentIds`：实时任务由任务 dock 展示，避免长列表与逐 turn 内容重复。
 
 ## 典型重排示例
 
@@ -263,5 +265,5 @@ guard 读取状态或分类调用时出错，会向会话注入一条 notice 报
 - `src/guard.js`：step 覆盖追踪、覆盖校验与工具硬性拦截。
 - `src/prompts.js`：加载提示词资源并填充模板占位符。
 - `index.js`：Host 生命周期、projection 状态与 wire schema。
-- `client.js`：精简 Dock、右侧任务标签页、turn 导航和 issue 展开组件。
+- `client.js`：精简 Dock、右侧轮次视图、turn 导航和 issue 展开组件。
 - `prompts/`：模型提示词、工具与参数说明、审查请求模板，以及守卫拦截、steer 警告和账本校验等运行文案。
