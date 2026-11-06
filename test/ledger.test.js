@@ -13,6 +13,11 @@ import {
   updateLedger,
   writeLedger,
 } from '../src/ledger.js';
+import { LEDGER_MESSAGES, fillPrompt } from '../src/prompts.js';
+
+function ledgerMessage(key, values) {
+  return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
+}
 
 function planned() {
   return writeLedger(emptyLedger(), ['Confirm requirements', 'Implement ledger', 'Add tests']).state;
@@ -32,10 +37,10 @@ test('append assigns stable ids and current indices', () => {
 
 test('tasks must start in order and finish explicitly', () => {
   const state = planned();
-  assert.throws(() => startLedger(state, 2), /finish earlier task 1/);
+  assert.throws(() => startLedger(state, 2), ledgerMessage('startBlocked', { previous: 1, index: 2 }));
   const started = startLedger(state, 1).state;
-  assert.throws(() => startLedger(started, 1), /not pending/);
-  assert.throws(() => finishLedger(started, 2), /not in_progress/);
+  assert.throws(() => startLedger(started, 1), ledgerMessage('startNotPending', { index: 1, status: 'in_progress' }));
+  assert.throws(() => finishLedger(started, 2), ledgerMessage('finishNotActive', { index: 2, status: 'pending' }));
   const finished = finishLedger(started, 1).state;
   assert.equal(startLedger(finished, 2).state.nodes[1].status, 'in_progress');
 });
@@ -88,8 +93,11 @@ test('composite updates finish and reorder in a fixed order', () => {
 test('composite updates validate fully without mutating the input state', () => {
   const state = startLedger(planned(), 1).state;
   const before = structuredClone(state);
-  assert.throws(() => updateLedger(state, { finish: 4 }), /task index must be between/);
-  assert.throws(() => updateLedger(state, {}), /provide todos, reorderFrom, or finish/);
+  assert.throws(
+    () => updateLedger(state, { finish: 4 }),
+    ledgerMessage('taskIndexRange', { tool: 'todo_write', count: 3 }),
+  );
+  assert.throws(() => updateLedger(state, {}), ledgerMessage('operationRequired'));
   assert.deepEqual(state, before);
 
   const removed = updateLedger(state, { reorderFrom: 2 });
@@ -100,8 +108,8 @@ test('composite updates validate fully without mutating the input state', () => 
 
 test('reports validate issues and expose only the active issue', () => {
   const started = startLedger(planned(), 1).state;
-  assert.throws(() => reportLedger(started, 1, true), /issue.*required/);
-  assert.throws(() => reportLedger(started, 1, false, 'Nested'), /omit `issue`/);
+  assert.throws(() => reportLedger(started, 1, true), ledgerMessage('issueRequired'));
+  assert.throws(() => reportLedger(started, 1, false, 'Nested'), ledgerMessage('issueOmitted'));
   const reported = reportLedger(started, 1, true, 'Inspect official API').state;
   assert.deepEqual(currentView(reported).tasks[0], {
     index: 1,
@@ -114,7 +122,7 @@ test('reports validate issues and expose only the active issue', () => {
   assert.equal(maintained.nodes[0].reports.at(-1).issue, 'Inspect official API');
   const topLevel = reportLedger(maintained, 1, false).state;
   assert.equal(currentView(topLevel).tasks[0].issue, undefined);
-  assert.throws(() => reportLedger(topLevel, 1, true), /issue.*required.*entering/);
+  assert.throws(() => reportLedger(topLevel, 1, true), ledgerMessage('issueRequired'));
 });
 
 test('reorder voids unfinished suffix, preserves completion and renumbers replacements', () => {

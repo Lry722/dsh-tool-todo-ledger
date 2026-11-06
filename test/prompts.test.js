@@ -44,10 +44,16 @@ test('runtime messages load and interpolate prompt placeholders', () => {
   // of the exemption allowance is left.
   assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.one, /\{\{/);
   assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.many, /\{\{/);
-  assert.equal(
-    fillPrompt(LEDGER_MESSAGES.taskIndexRange, { tool: 'todo_write', count: 3 }),
-    'todo_write: task index must be between 1 and 3',
-  );
+  // Assert interpolation behavior instead of the current language so that
+  // localizing ledger messages never breaks this test.
+  assert.match(LEDGER_MESSAGES.taskIndexRange, /\{\{tool\}\}/);
+  assert.match(LEDGER_MESSAGES.taskIndexRange, /\{\{count\}\}/);
+  const taskIndexRange = fillPrompt(LEDGER_MESSAGES.taskIndexRange, { tool: 'todo_write', count: 3 });
+  assert.notEqual(taskIndexRange, LEDGER_MESSAGES.taskIndexRange);
+  assert.match(taskIndexRange, /todo_write/);
+  assert.match(taskIndexRange, /1/);
+  assert.match(taskIndexRange, /3/);
+  assert.doesNotMatch(taskIndexRange, /\{\{/);
   assert.equal(
     fillPrompt(TOOL_MESSAGES.requiresAgent, { tool: 'todo_read' }),
     'todo_read requires an owning agent session',

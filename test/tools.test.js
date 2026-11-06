@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createLedgerTools } from '../src/tools.js';
 import { emptyLedger, foldLedgerEvent } from '../src/ledger.js';
-import { TOOL_PROMPTS } from '../src/prompts.js';
+import { LEDGER_MESSAGES, fillPrompt } from '../src/prompts.js';
+
+function ledgerMessage(key, values) {
+  return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
+}
 
 function harness({ enabled = false, reviewText = '{"compliant":true}', instructions = [] } = {}) {
   let state = emptyLedger();
@@ -172,7 +176,7 @@ test('a failed composite call appends no partial operations', async () => {
   const eventCount = env.appended.length;
   await assert.rejects(
     env.tools.todo_write.execute({ finish: 1, reorderFrom: 3 }, env.exec),
-    /reorderFrom must be an existing/,
+    ledgerMessage('reorderRange', { count: 2 }),
   );
   assert.equal(env.appended.length, eventCount);
   const read = await env.tools.todo_read.execute({}, env.exec);
