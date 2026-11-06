@@ -8,11 +8,20 @@ function ledgerMessage(key, values) {
   return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
 }
 
-function harness({ enabled = false, reviewText = '{"compliant":true}', instructions = [] } = {}) {
+function harness({
+  enabled = false,
+  reviewText = '{"compliant":true}',
+  instructions = [],
+  signal,
+  onStream,
+  throwOnAbort = true,
+  logger,
+} = {}) {
   let state = emptyLedger();
   let seq = 0;
   let reviewCalls = 0;
   const appended = [];
+  const execSignal = signal ?? new AbortController().signal;
   const events = new Map(instructions.map((text, index) => [index + 1, {
     type: 'user/message',
     data: { source: { kind: 'agent-instructions' }, content: [{ type: 'text', text }] },
@@ -20,14 +29,18 @@ function harness({ enabled = false, reviewText = '{"compliant":true}', instructi
   const ctx = {
     sessionProjections: { stateOf: () => state },
     llm: {
-      stream() {
+      stream(params) {
         reviewCalls += 1;
+        onStream?.(params);
         return (async function* () {
+          if (throwOnAbort && params.signal?.aborted) throw new Error('review aborted');
           yield { type: 'text-delta', index: 0, text: reviewText };
+          if (throwOnAbort && params.signal?.aborted) throw new Error('review aborted');
           yield { type: 'finish', reason: { kind: 'stop' } };
         })();
       },
     },
+    ...(logger === undefined ? {} : { logger }),
   };
   const agent = {
     session: {
@@ -48,9 +61,10 @@ function harness({ enabled = false, reviewText = '{"compliant":true}', instructi
     tools,
     agent,
     appended,
+    state: () => state,
     setEnabled(value) { current = value; },
     reviewCalls() { return reviewCalls; },
-    exec: { agent, callId: 'call-1', signal: new AbortController().signal },
+    exec: { agent, callId: 'call-1', signal: execSignal },
   };
 }
 
@@ -97,6 +111,68 @@ test('review warnings are returned while technical failures stay invisible', asy
   const continued = await malformed.tools.todo_write.execute({ todos: ['Implement'] }, malformed.exec);
   assert.equal(Object.hasOwn(continued, 'review'), false);
   assert.equal(malformed.appended.length, 2);
+});
+
+test('cancellation during review leaves the ledger untouched and logs nothing', async () => {
+  const controller = new AbortController();
+  const warnings = [];
+  const env = harness({
+    enabled: true,
+    instructions: ['Plan before writing.'],
+    signal: controller.signal,
+    onStream: () => controller.abort(),
+    logger: { warn: (text) => warnings.push(text) },
+  });
+  const result = await env.tools.todo_write.execute({ todos: ['Cancelled'] }, env.exec);
+  assert.deepEqual(result, {});
+  assert.equal(env.reviewCalls(), 1);
+  assert.equal(env.appended.length, 0);
+  assert.deepEqual(env.state().nodes, []);
+  assert.deepEqual(env.state().currentIds, []);
+  assert.equal(warnings.length, 0);
+
+  // A review that finishes after the abort must also discard its pending writes.
+  const completed = new AbortController();
+  const late = harness({
+    enabled: true,
+    instructions: ['Plan before writing.'],
+    signal: completed.signal,
+    onStream: () => completed.abort(),
+    throwOnAbort: false,
+  });
+  const lateResult = await late.tools.todo_write.execute({ todos: ['Cancelled'] }, late.exec);
+  assert.deepEqual(lateResult, {});
+  assert.equal(late.reviewCalls(), 1);
+  assert.equal(late.appended.length, 0);
+  assert.deepEqual(late.state().currentIds, []);
+});
+
+test('technical review failures still write and log a host warning', async () => {
+  const warnings = [];
+  const env = harness({
+    enabled: true,
+    instructions: ['Plan.'],
+    reviewText: 'bad json',
+    logger: { warn: (text) => warnings.push(text) },
+  });
+  const result = await env.tools.todo_write.execute({ todos: ['Implement'] }, env.exec);
+  assert.equal(Object.hasOwn(result, 'review'), false);
+  assert.deepEqual(result.added, [{ index: 1, content: 'Implement' }]);
+  assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start']);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /^todo-ledger: plan review skipped: /);
+  assert.match(warnings[0], /json/i);
+});
+
+test('an already-aborted call writes nothing', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const env = harness({ enabled: true, instructions: ['Plan.'], signal: controller.signal });
+  const result = await env.tools.todo_write.execute({ todos: ['Ignored'] }, env.exec);
+  assert.deepEqual(result, {});
+  assert.equal(env.reviewCalls(), 0);
+  assert.equal(env.appended.length, 0);
+  assert.deepEqual(env.state().currentIds, []);
 });
 
 test('composite writes preserve separate start, report and finish operations', async () => {

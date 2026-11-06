@@ -86,6 +86,7 @@ export function createLedgerTools(ctx, config) {
       },
       output: { schema: OUTPUT_SCHEMA, render: textOutput },
       async execute(args, exec) {
+        if (exec.signal?.aborted) return {};
         const result = updateLedger(owningState(ctx, exec, 'todo_write'), args);
         let review;
         if (result.write && reviewEnabled()) {
@@ -98,10 +99,15 @@ export function createLedgerTools(ctx, config) {
           try {
             review = await reviewTodoWrite(ctx, exec.agent, pending, exec.signal);
             if (review.status === 'warning') review.message = reviewResult('warning', review.message);
-          } catch {
+          } catch (error) {
             review = undefined;
+            if (!exec.signal?.aborted) {
+              const reason = error instanceof Error ? error.message : String(error);
+              ctx.logger?.warn(`todo-ledger: plan review skipped: ${reason}`);
+            }
           }
         }
+        if (exec.signal?.aborted) return {};
         for (const operation of result.operations) {
           appendOperation(exec, operation.state, {
             ...operation.ledger,
