@@ -1,6 +1,9 @@
 import { BlockAssembler } from '@deepseek-ai/dsh-llm';
 import { REVIEW_POLICY, reviewError, reviewRequest, reviewResult } from './prompts.js';
 
+const REVIEW_MAX_TOKENS = 1024;
+const REVIEW_TIMEOUT_MS = 30_000;
+
 export function activeProjectInstructions(agent) {
   const instructions = [];
   for (const seq of agent.session.surface.nodes) {
@@ -64,12 +67,14 @@ export async function reviewTodoWrite(ctx, agent, pending, signal) {
   const route = header?.config;
   if (!route?.provider || !route?.model) throw reviewError('noRoute');
   const userText = reviewRequest(instructions, pending);
+  const timeoutSignal = AbortSignal.timeout(REVIEW_TIMEOUT_MS);
   return readReview(ctx.llm.stream({
     provider: route.provider,
     model: route.model,
     system: REVIEW_POLICY,
     messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
     temperature: 0,
-    signal,
+    maxTokens: REVIEW_MAX_TOKENS,
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   }));
 }

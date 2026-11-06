@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile, readdir, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname } from 'node:path';
 import { createLedgerTools } from '../src/tools.js';
 import {
   LEDGER_VERSION,
@@ -24,6 +27,7 @@ function harness({
   onStream,
   throwOnAbort = true,
   logger,
+  stateAvailable = true,
 } = {}) {
   let state = emptyLedger();
   let seq = 0;
@@ -35,7 +39,7 @@ function harness({
     data: { source: { kind: 'agent-instructions' }, content: [{ type: 'text', text }] },
   }]));
   const ctx = {
-    sessionProjections: { stateOf: () => state },
+    sessionProjections: { stateOf: () => (stateAvailable ? state : undefined) },
     llm: {
       stream(params) {
         reviewCalls += 1;
@@ -52,9 +56,11 @@ function harness({
   };
   const agent = {
     session: {
+      id: 'session-1',
       surface: { nodes: [...events.keys()] },
       eventAt: (sequence) => events.get(sequence),
       requestHeader: () => ({ config: { provider: 'test', model: 'test' } }),
+      snapshotEvents: () => [...appended],
       append(type, data) {
         const event = { type, data, seq: ++seq, time: seq * 100 };
         appended.push(event);
@@ -137,6 +143,49 @@ test('todo_write appends a replayable delta and volatile review config is read p
   assert.equal(env.appended.length, 3);
   const read = await env.tools.todo_read.execute({}, env.exec);
   assert.deepEqual(read.tasks.map((task) => task.content), ['First', 'Second']);
+});
+
+test('todo_read full exports a complete private history file', async () => {
+  const env = harness();
+  await env.tools.todo_write.execute({ todos: ['First'] }, env.exec);
+  const result = await env.tools.todo_read.execute({ full: true }, env.exec);
+  const directory = dirname(result.path);
+  try {
+    assert.equal(dirname(directory), tmpdir());
+    assert.match(basename(directory), /^todo-ledger-/);
+    assert.match(basename(result.path), /^todo-ledger-session-1-\d+\.json$/);
+    const document = JSON.parse(await readFile(result.path, 'utf8'));
+    assert.equal(document.format, 'dsh-todo-ledger-history/v1');
+    assert.equal(document.sessionId, 'session-1');
+    assert.equal(typeof document.exportedAt, 'string');
+    assert.equal(Number.isNaN(Date.parse(document.exportedAt)), false);
+    assert.deepEqual(document.state.currentIds, env.state().currentIds);
+    assert.equal(result.eventCount, env.appended.length);
+    assert.ok(env.appended.every((event) => event.type === 'todo/write'));
+    assert.deepEqual(
+      document.events,
+      env.appended.map(({ seq, time, data }) => ({ seq, time, data })),
+    );
+    if (process.platform !== 'win32') {
+      assert.equal((await stat(result.path)).mode & 0o777, 0o600);
+      assert.equal((await stat(directory)).mode & 0o777, 0o700);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('todo_read full creates no export when the projection is unavailable', async () => {
+  const prefix = 'todo-ledger-';
+  const before = new Set((await readdir(tmpdir())).filter((name) => name.startsWith(prefix)));
+  const env = harness({ stateAvailable: false });
+  await assert.rejects(
+    env.tools.todo_read.execute({ full: true }, env.exec),
+    (error) => error.message === 'todo_read: todoLedger projection is unavailable',
+  );
+  const created = (await readdir(tmpdir()))
+    .filter((name) => name.startsWith(prefix) && !before.has(name));
+  assert.deepEqual(created, []);
 });
 
 test('initial creation auto-starts a task that can be reported', async () => {

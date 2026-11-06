@@ -52,9 +52,29 @@ test('only visible agent-instructions messages are supplied to the reviewer', as
   assert.equal(calls.length, 1);
   assert.equal(calls[0].provider, 'test-provider');
   assert.equal(calls[0].model, 'test-model');
+  assert.equal(calls[0].maxTokens, 1024);
+  assert.ok(calls[0].signal instanceof AbortSignal);
+  assert.equal(calls[0].signal.aborted, false);
   assert.match(calls[0].messages[0].content[0].text, /Use explicit task transitions/);
   assert.doesNotMatch(calls[0].messages[0].content[0].text, /Not an AGENTS instruction/);
   assert.equal(calls[0].sessionId, undefined);
+});
+
+test('an aborted caller signal propagates to the reviewer stream', async () => {
+  const agent = agentWithInstructions([{ path: 'AGENTS.md', text: 'Plan carefully.' }]);
+  const calls = [];
+  const controller = new AbortController();
+  controller.abort();
+  const result = await reviewTodoWrite(
+    contextReturning('{"compliant":true}', calls),
+    agent,
+    { todos: ['Task'] },
+    controller.signal,
+  );
+  assert.equal(result.status, 'passed');
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].signal instanceof AbortSignal);
+  assert.equal(calls[0].signal.aborted, true);
 });
 
 test('a violation returns a concise warning object', async () => {

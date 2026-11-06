@@ -1,7 +1,6 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import {
   LEDGER_VERSION,
@@ -43,8 +42,8 @@ function appendOperation(exec, todos, ledger) {
 }
 
 async function exportHistory(ctx, agent) {
+  const state = owningState(ctx, { agent }, 'todo_read');
   const session = agent.session;
-  const state = ctx.sessionProjections.stateOf(session, 'todoLedger');
   const events = session.snapshotEvents()
     .filter((event) => event.type === 'todo/write')
     .map((event) => ({ seq: event.seq, time: event.time, data: event.data }));
@@ -56,8 +55,14 @@ async function exportHistory(ctx, agent) {
     events,
   };
   const safeId = String(session.id).replace(/[^A-Za-z0-9_-]/g, '_');
-  const path = join(tmpdir(), `todo-ledger-${safeId}-${Date.now()}-${randomUUID().slice(0, 8)}.json`);
-  await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
+  const directory = await mkdtemp(join(tmpdir(), 'todo-ledger-'));
+  const path = join(directory, `todo-ledger-${safeId}-${Date.now()}.json`);
+  try {
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
   return { path, eventCount: events.length };
 }
 
