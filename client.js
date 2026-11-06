@@ -456,11 +456,36 @@ window.__ModuleLoader__.load({
       return [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total }), ...(turn.tasks.length > 0 ? [turn.tasks[0].content] : [])].join('\u3000');
     }
 
+    // The rail is a scroll position, not a content list: rendering every turn
+    // button makes long sessions expensive while only a small window is visible.
+    const TURN_RAIL_WINDOW = 120;
+    const TURN_RAIL_MARK_HEIGHT = 10;
+    // Persisted per-session view state is a convenience cache, not durable data.
+    // Bound it so browsing many sessions cannot grow the map forever.
+    const MAX_UI_STATES = 64;
+
+    function rememberUiState(uiStates, sessionId, value) {
+      uiStates.delete(sessionId);
+      uiStates.set(sessionId, value);
+      while (uiStates.size > MAX_UI_STATES) {
+        uiStates.delete(uiStates.keys().next().value);
+      }
+    }
+
     function TurnRail({ turns, selectedTurn, onSelect, t }) {
       const scrollerRef = React.useRef(null);
       const activeRef = React.useRef(null);
       const [preview, setPreview] = React.useState(null);
       const previewId = React.useId();
+      const selectedIndex = turns.findIndex((turn) => turn.turn === selectedTurn);
+      const windowStart = selectedIndex < 0
+        ? 0
+        : Math.max(0, Math.min(
+          selectedIndex - Math.floor(TURN_RAIL_WINDOW / 2),
+          turns.length - TURN_RAIL_WINDOW,
+        ));
+      const windowEnd = Math.min(turns.length, windowStart + TURN_RAIL_WINDOW);
+      const visibleTurns = turns.slice(windowStart, windowEnd);
       React.useEffect(() => {
         const scroller = scrollerRef.current;
         const active = activeRef.current;
@@ -476,7 +501,15 @@ window.__ModuleLoader__.load({
       if (turns.length < 2) return null;
       return h('nav', { className: 'todo-ledger-sidebar__turn-rail', 'aria-label': t('turnSummary'), onPointerLeave: () => setPreview(null) },
         h('div', { ref: scrollerRef, className: 'todo-ledger-sidebar__turn-rail-scroller', onScroll: () => setPreview(null) },
-          turns.map((turn) => h('button', {
+          windowStart > 0
+            ? h('div', {
+              key: 'before',
+              className: 'todo-ledger-sidebar__turn-rail-spacer',
+              'aria-hidden': true,
+              style: { height: `${windowStart * TURN_RAIL_MARK_HEIGHT}px` },
+            })
+            : null,
+          visibleTurns.map((turn) => h('button', {
             key: turn.turn,
             ref: turn.turn === selectedTurn ? activeRef : undefined,
             type: 'button',
@@ -491,6 +524,14 @@ window.__ModuleLoader__.load({
             onBlur: () => setPreview(null),
             onClick: () => onSelect(turn.turn),
           })),
+          windowEnd < turns.length
+            ? h('div', {
+              key: 'after',
+              className: 'todo-ledger-sidebar__turn-rail-spacer',
+              'aria-hidden': true,
+              style: { height: `${(turns.length - windowEnd) * TURN_RAIL_MARK_HEIGHT}px` },
+            })
+            : null,
         ),
         preview ? h('div', {
           id: previewId,
@@ -614,6 +655,10 @@ window.__ModuleLoader__.load({
       const saved = uiStates.get(sessionId);
       const [view, setView] = React.useState(saved?.view ?? 'current');
       const [selectedTurn, setSelectedTurn] = React.useState(saved?.selectedTurn);
+      const idBase = React.useId();
+      const currentTabId = `${idBase}-current-tab`;
+      const historyTabId = `${idBase}-history-tab`;
+      const panelId = `${idBase}-panel`;
       const projection = useProjection('todoLedger');
       const loaded = projection !== undefined;
       const turns = (projection?.turns ?? []).filter((turn) => turn.turn !== 0 || turn.total > 0);
@@ -626,8 +671,18 @@ window.__ModuleLoader__.load({
         if (view === 'history' && !validSelection && fallback !== undefined) setSelectedTurn(fallback);
       }, [view, validSelection, fallback]);
       React.useEffect(() => {
-        uiStates.set(sessionId, { view, selectedTurn });
+        rememberUiState(uiStates, sessionId, { view, selectedTurn });
       }, [sessionId, view, selectedTurn, uiStates]);
+      const onTabKeyDown = (event) => {
+        let next;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') next = view === 'current' ? 'history' : 'current';
+        else if (event.key === 'Home') next = 'current';
+        else if (event.key === 'End') next = 'history';
+        if (next === undefined) return;
+        event.preventDefault();
+        setView(next);
+        globalThis.document?.getElementById?.(next === 'current' ? currentTabId : historyTabId)?.focus?.();
+      };
       const onJump = (item) => jump(item);
       return h('section', {
         className: 'todo-ledger-sidebar',
@@ -635,12 +690,42 @@ window.__ModuleLoader__.load({
         'aria-busy': !loaded || undefined,
       },
         h('style', null, css),
-        h('div', { className: 'todo-ledger-sidebar__tabs', role: 'tablist' },
-          h('button', { type: 'button', role: 'tab', className: 'todo-ledger-sidebar__tab', 'aria-selected': view === 'current', onClick: () => setView('current') }, t('currentPlan')),
-          h('button', { type: 'button', role: 'tab', className: 'todo-ledger-sidebar__tab', 'aria-selected': view === 'history', onClick: () => setView('history') }, t('history')),
+        h('div', {
+          className: 'todo-ledger-sidebar__tabs',
+          role: 'tablist',
+          'aria-label': t('sidebarTitle'),
+          onKeyDown: onTabKeyDown,
+        },
+          h('button', {
+            id: currentTabId,
+            type: 'button',
+            role: 'tab',
+            className: 'todo-ledger-sidebar__tab',
+            'aria-selected': view === 'current',
+            'aria-controls': panelId,
+            tabIndex: view === 'current' ? 0 : -1,
+            onClick: () => setView('current'),
+          }, t('currentPlan')),
+          h('button', {
+            id: historyTabId,
+            type: 'button',
+            role: 'tab',
+            className: 'todo-ledger-sidebar__tab',
+            'aria-selected': view === 'history',
+            'aria-controls': panelId,
+            tabIndex: view === 'history' ? 0 : -1,
+            onClick: () => setView('history'),
+          }, t('history')),
         ),
         h('div', { className: 'todo-ledger-sidebar__content' },
-          h('div', { className: 'todo-ledger-sidebar__body', role: 'tabpanel', 'data-history': view === 'history' || undefined },
+          h('div', {
+            id: panelId,
+            className: 'todo-ledger-sidebar__body',
+            role: 'tabpanel',
+            'aria-labelledby': view === 'current' ? currentTabId : historyTabId,
+            tabIndex: 0,
+            'data-history': view === 'history' || undefined,
+          },
             !loaded
               ? null
               : view === 'current'

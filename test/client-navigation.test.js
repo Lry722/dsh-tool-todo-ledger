@@ -8,7 +8,7 @@ const React = {
   useId: () => 'id',
   useRef: (value) => ({ current: value }),
   useState: (value) => [typeof value === 'function' ? value() : value, () => {}],
-  useEffect: () => {},
+  useEffect: (effect) => { effect(); },
 };
 
 const primitives = {
@@ -225,4 +225,65 @@ test('task text and the sidebar container use distinct classes', () => {
     elements.filter((element) => element.props?.className === 'todo-ledger-sidebar__task-content').map((element) => [element.type, element.children[0]]),
     [['span', 'Ship the fix']],
   );
+});
+
+test('tabs identify their panel and expose roving keyboard focus', () => {
+  const ctx = createContext('session-1');
+  const sidebar = sidebarFor(ctx);
+  const tree = sidebar.render(() => ({ current: [], turns: [], currentTurn: 0 }));
+  const elements = elementsOf(tree);
+  const tablist = elements.find((element) => element.props?.role === 'tablist');
+  const tabs = elements.filter((element) => element.props?.role === 'tab');
+  const panel = elements.find((element) => element.props?.role === 'tabpanel');
+
+  assert.equal(tabs.length, 2);
+  assert.equal(panel.props.id, tabs[0].props['aria-controls']);
+  assert.equal(panel.props.id, tabs[1].props['aria-controls']);
+  assert.equal(panel.props['aria-labelledby'], tabs[0].props.id);
+  assert.deepEqual(tabs.map((tab) => tab.props.tabIndex), [0, -1]);
+  assert.equal(typeof tablist.props.onKeyDown, 'function');
+  assert.equal(tablist.props['aria-label'], 'sidebarTitle');
+});
+
+function manyTurns(count) {
+  return Array.from({ length: count }, (_value, index) => ({
+    turn: index + 1,
+    total: 1,
+    completed: 0,
+    voided: 0,
+    open: false,
+    tasks: [],
+  }));
+}
+
+test('the turn rail renders only a window around the selected turn', () => {
+  const ctx = createContext('session-1');
+  const sidebar = sidebarFor(ctx);
+  sidebar.uiStates.set('session-1', { view: 'history', selectedTurn: 500 });
+  const turns = manyTurns(500);
+  const tree = sidebar.render(() => ({ current: [], turns, currentTurn: 500 }));
+  const elements = elementsOf(tree);
+  const marks = elements.filter((element) => element.props?.className === 'todo-ledger-sidebar__turn-rail-mark');
+  const spacers = elements.filter((element) => element.props?.className === 'todo-ledger-sidebar__turn-rail-spacer');
+
+  // The default selection is the last archived turn, so the window covers the tail.
+  assert.equal(marks.length, 120);
+  assert.deepEqual(spacers.map((spacer) => spacer.props.style.height), ['3800px']);
+});
+
+test('per-session UI state stays bounded while browsing sessions', () => {
+  const ctx = createContext('session-1');
+  const sidebar = sidebarFor(ctx);
+  sidebar.uiStates.clear();
+  const tab = ctx.registrations.find((options) => options.name === 'sidebar.right.pane.tab');
+  for (let index = 0; index < 200; index += 1) {
+    renderTree(tab.component({
+      useProjection: () => ({ current: [], turns: [], currentTurn: 0 }),
+      t: (key) => key,
+      sessionId: `session-${index}`,
+      openTodoStart: () => {},
+      uiStates: sidebar.uiStates,
+    }));
+  }
+  assert.equal(sidebar.uiStates.size, 64);
 });
