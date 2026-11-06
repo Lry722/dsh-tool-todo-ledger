@@ -4,6 +4,9 @@ function loadMarkdown(name) {
   return readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 }
 
+// Prompt JSON is read at module evaluation rather than imported as a module, so
+// the host HMR does not observe edits to prompts/*.json. Touch this module after
+// editing one (or restart) to evict this module and its importers.
 function loadJson(name) {
   return JSON.parse(readFileSync(new URL(`../prompts/${name}.json`, import.meta.url), 'utf8'));
 }

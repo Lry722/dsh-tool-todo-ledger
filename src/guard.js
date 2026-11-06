@@ -47,6 +47,27 @@ export function repeatedIssue(state, execution) {
   return { taskId: task.id, issue };
 }
 
+/**
+ * Detect a `todo_write` finish for an active task that has no execution report
+ * yet. Such a finish is either a pure-output closing task (legitimate, no
+ * actions to report) or a task whose premise was disproved and should be
+ * reordered away. Only the model can tell, so the first attempt is refused for
+ * confirmation instead of being either silently admitted or hard-rejected.
+ * @param state - the current `todoLedger` projection.
+ * @param execution - the `todo_write` execution whose parsed arguments are inspected.
+ * @returns the finished task's current index and stable id, or undefined.
+ */
+export function unreportedFinish(state, execution) {
+  const args = execution?.arguments;
+  if (args === null || typeof args !== 'object' || !Number.isInteger(args.finish)) return undefined;
+  const index = args.finish;
+  if (!Array.isArray(state?.currentIds) || index < 1 || index > state.currentIds.length) return undefined;
+  const task = state.nodes?.find((node) => node.id === state.currentIds[index - 1]);
+  if (task?.status !== 'in_progress') return undefined;
+  if ((task.reports?.length ?? 0) > 0) return undefined;
+  return { index, taskId: task.id };
+}
+
 function reportRecorded(task, callId) {
   return task.reports?.at(-1)?.callId === callId;
 }
@@ -251,6 +272,9 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   let messageAdmission;
   let lastReportToken;
   let repeatedIssueSteered;
+  // Tasks whose first unreported finish was refused for confirmation. The next
+  // finish of the same task is the model declaring it a no-action output task.
+  const pendingFinishConfirmations = new Set();
   let failureReported = false;
   // PTC programs have no message-level call list, so coverage is judged once
   // per program after its nested dispatches settle.
@@ -369,6 +393,16 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
         if (coverage.outcome === 'blocked') return coverage.reason;
         steerRepeatedIssue(state, execution, execution.agent);
         return undefined;
+      }
+      // A finish without any report is ambiguous. Refuse the first attempt so
+      // the model can either reorder a disproved task or confirm a task that
+      // only produces the final answer without tools.
+      if (execution.name === 'todo_write') {
+        const unreported = unreportedFinish(state, execution);
+        if (unreported && !pendingFinishConfirmations.delete(unreported.taskId)) {
+          pendingFinishConfirmations.add(unreported.taskId);
+          return fillPrompt(GUARD_MESSAGES.unreportedFinish, { index: unreported.index });
+        }
       }
       // Every action re-reads the current state: an earlier todo_write in the
       // same message may finish the task or switch the active one.

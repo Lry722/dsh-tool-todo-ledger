@@ -1,10 +1,10 @@
 {
   "todo_write": {
-    "description": "记录并更新 todo list 以规划工作并展示进度。在调用任何其他工具之前，必须先通过 todo_write 创建至少一个 task，否则任何其他工具调用都会被拒绝。一旦 task 目标达成，必须明确将其 finish。若任务进行中原计划已被打乱，及时进行 reorder 修改未完成的 tasks（已完成的 tasks 不可修改）。返回的 started 字段为修改后排在第一的 task。",
+    "description": "记录并更新 todo list 以规划工作并展示进度。在调用任何其他工具之前，必须先通过 todo_write 创建至少一个 task，否则任何其他工具调用都会被拒绝。任务目标真正达成后必须明确 finish；若执行中发现原计划已被打乱、task 前提被证伪或目标变化，必须用 reorderFrom 重排作废，不能把失效 task 标记为完成。finish 前该 task 必须已有 todo_report；仅输出最终结论的收尾 task 首次 finish 会要求再次确认。返回的 started 字段为修改后排在第一的 task。",
     "parameters": {
-      "finish": "标记 task 完成。",
+      "finish": "标记 task 完成。仅当目标确实达成时使用；该 task 必须已有 todo_report，仅输出结论的收尾 task 首次调用会被要求再次 finish 确认。前提失效或计划变化请改用 reorderFrom。",
       "todos": "要追加的新 tasks，或在设置了 reorderFrom 时作为替换的内容。仅标记 task 完成时请省略。",
-      "reorderFrom": "现有 task 编号，从该编号处开始移除当前计划中未完成的 task 并追加替换 task。仅当需要重排 tasks 时提供。"
+      "reorderFrom": "现有 task 编号，从该编号起作废当前计划中未完成的 task，并追加替换的新计划。目标变化、前提被证伪、任务阻塞或出现必须优先处理的新问题时必须使用；已完成的 task 不受影响。仅作废时可省略 todos。"
     }
   },
   "todo_read": {

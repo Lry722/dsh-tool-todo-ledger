@@ -8,6 +8,7 @@ import {
   repeatedIssue,
   stepCoverage,
   stepToolCalls,
+  unreportedFinish,
 } from '../src/guard.js';
 import {
   LEDGER_VERSION,
@@ -305,6 +306,64 @@ test('repeatedIssue only matches an explicit continuation of the active issue', 
   assert.equal(inProgressTask(reordered).id, 't1');
   assert.equal(
     repeatedIssue(reordered, { arguments: { inIssue: true, issue: '查询 DSH API' } }),
+    undefined,
+  );
+});
+
+test('unreportedFinish only matches an active task without reports', () => {
+  const state = inProgressLedger();
+  assert.deepEqual(unreportedFinish(state, { arguments: { finish: 1 } }), {
+    index: 1,
+    taskId: 't1',
+  });
+  assert.equal(unreportedFinish(reportedLedger(), { arguments: { finish: 1 } }), undefined);
+  assert.equal(unreportedFinish(state, { arguments: { finish: 2 } }), undefined);
+  assert.equal(unreportedFinish(state, { arguments: { finish: 0 } }), undefined);
+  assert.equal(unreportedFinish(state, { arguments: { todos: ['Next'] } }), undefined);
+  assert.equal(unreportedFinish(state, { arguments: undefined }), undefined);
+  assert.equal(unreportedFinish(emptyLedger(), { arguments: { finish: 1 } }), undefined);
+  assert.equal(
+    unreportedFinish(finishLedger(state, 1).state, { arguments: { finish: 1 } }),
+    undefined,
+  );
+});
+
+test('the first finish of an unreported task asks for confirmation', () => {
+  const h = guardHarness(inProgressLedger());
+  h.setStep(message(call('todo_write'), call('bash')));
+  const finish = { finish: 1 };
+
+  const denial = h.run('todo_write-call', 'todo_write', 'todo_write-call', finish);
+  assert.match(denial, /没有任何 todo_report/);
+  assert.match(denial, /再次调用同一个 finish 确认/);
+  assert.match(denial, /reorderFrom: 1/);
+
+  // The second attempt is the explicit declaration of a no-action output task.
+  assert.equal(h.run('todo_write-call', 'todo_write', 'todo_write-call', finish), undefined);
+  assert.equal(h.warnings.length, 0);
+});
+
+test('a report makes the finish confirmation unnecessary', () => {
+  const h = guardHarness(inProgressLedger());
+  h.setStep(message(call('todo_write')));
+  assert.match(
+    h.run('todo_write-call', 'todo_write', 'todo_write-call', { finish: 1 }),
+    /reorderFrom/,
+  );
+
+  h.setState(reportedLedger());
+  assert.equal(h.run('todo_write-call', 'todo_write', 'todo_write-call', { finish: 1 }), undefined);
+});
+
+test('a PTC finish without reports uses the same confirmation', () => {
+  const h = guardHarness(inProgressLedger());
+  h.setStep(message(call('run_code', 'run_code-call')));
+  assert.match(
+    h.run('run_code-call', 'todo_write', 'run_code-call:ptc:1', { finish: 1 }),
+    /reorderFrom: 1/,
+  );
+  assert.equal(
+    h.run('run_code-call', 'todo_write', 'run_code-call:ptc:1', { finish: 1 }),
     undefined,
   );
 });

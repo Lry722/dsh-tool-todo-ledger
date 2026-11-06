@@ -49,6 +49,11 @@ test('runtime messages load and interpolate prompt placeholders', () => {
   assert.match(repeatedIssue, /查询 API/);
   assert.match(repeatedIssue, /省略 issue/);
   assert.doesNotMatch(repeatedIssue, /\{\{/);
+  assert.match(GUARD_MESSAGES.unreportedFinish, /\{\{index\}\}/);
+  const unreportedFinish = fillPrompt(GUARD_MESSAGES.unreportedFinish, { index: 2 });
+  assert.match(unreportedFinish, /再次调用同一个 finish 确认/);
+  assert.match(unreportedFinish, /reorderFrom: 2/);
+  assert.doesNotMatch(unreportedFinish, /\{\{/);
   // Assert interpolation behavior instead of the current language so that
   // localizing ledger messages never breaks this test.
   assert.match(LEDGER_MESSAGES.taskIndexRange, /\{\{tool\}\}/);
