@@ -476,14 +476,18 @@ window.__ModuleLoader__.load({
       const scrollerRef = React.useRef(null);
       const activeRef = React.useRef(null);
       const [preview, setPreview] = React.useState(null);
+      const [railWindow, setRailWindow] = React.useState(null);
       const previewId = React.useId();
       const selectedIndex = turns.findIndex((turn) => turn.turn === selectedTurn);
-      const windowStart = selectedIndex < 0
+      const maxWindowStart = Math.max(0, turns.length - TURN_RAIL_WINDOW);
+      const autoStart = selectedIndex < 0
         ? 0
-        : Math.max(0, Math.min(
-          selectedIndex - Math.floor(TURN_RAIL_WINDOW / 2),
-          turns.length - TURN_RAIL_WINDOW,
-        ));
+        : Math.max(0, Math.min(selectedIndex - Math.floor(TURN_RAIL_WINDOW / 2), maxWindowStart));
+      // A new selection always starts from a window that contains it; scrolling
+      // then moves that same window so every turn stays reachable.
+      const windowStart = railWindow !== null && railWindow.selectedTurn === selectedTurn
+        ? Math.max(0, Math.min(railWindow.start, maxWindowStart))
+        : autoStart;
       const windowEnd = Math.min(turns.length, windowStart + TURN_RAIL_WINDOW);
       const visibleTurns = turns.slice(windowStart, windowEnd);
       React.useEffect(() => {
@@ -492,7 +496,31 @@ window.__ModuleLoader__.load({
         if (!scroller || !active) return;
         const centered = active.offsetTop - (scroller.clientHeight - active.clientHeight) / 2;
         scroller.scrollTop = Math.max(0, Math.min(centered, scroller.scrollHeight - scroller.clientHeight));
+        setRailWindow({ selectedTurn, start: autoStart });
       }, [selectedTurn, turns.length]);
+      const onRailScroll = (event) => {
+        setPreview(null);
+        const scroller = event.currentTarget;
+        const top = scroller.scrollTop;
+        const bottom = top + scroller.clientHeight;
+        const renderedTop = windowStart * TURN_RAIL_MARK_HEIGHT;
+        const renderedBottom = windowEnd * TURN_RAIL_MARK_HEIGHT;
+        let next;
+        if (top < renderedTop) {
+          next = Math.floor(top / TURN_RAIL_MARK_HEIGHT) - 20;
+        } else if (bottom > renderedBottom) {
+          next = Math.ceil(bottom / TURN_RAIL_MARK_HEIGHT) - (TURN_RAIL_WINDOW - 20);
+        } else {
+          return;
+        }
+        next = Math.max(0, Math.min(next, maxWindowStart));
+        if (next === windowStart) return;
+        setRailWindow((previous) => (
+          previous?.selectedTurn === selectedTurn && previous.start === next
+            ? previous
+            : { selectedTurn, start: next }
+        ));
+      };
       const showPreview = (turn, element) => {
         const scroller = scrollerRef.current;
         if (!scroller) return;
@@ -500,7 +528,7 @@ window.__ModuleLoader__.load({
       };
       if (turns.length < 2) return null;
       return h('nav', { className: 'todo-ledger-sidebar__turn-rail', 'aria-label': t('turnSummary'), onPointerLeave: () => setPreview(null) },
-        h('div', { ref: scrollerRef, className: 'todo-ledger-sidebar__turn-rail-scroller', onScroll: () => setPreview(null) },
+        h('div', { ref: scrollerRef, className: 'todo-ledger-sidebar__turn-rail-scroller', onScroll: onRailScroll },
           windowStart > 0
             ? h('div', {
               key: 'before',
