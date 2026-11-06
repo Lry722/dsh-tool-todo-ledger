@@ -15,6 +15,7 @@ import {
   foldLedgerEvent,
   legacyTodos,
   startLedger,
+  updateLedger,
   writeLedger,
 } from '../src/ledger.js';
 
@@ -170,7 +171,7 @@ test('a recorded report resets the exemption budget', () => {
   assert.match(budget.admit().warning, /你忘了调用 todo_report/);
 });
 
-function guardHarness(initialState = reportedLedger()) {
+function guardHarness(initialState = reportedLedger(), budget = createCoverageBudget()) {
   let state = initialState;
   let step;
   let guard;
@@ -197,7 +198,7 @@ function guardHarness(initialState = reportedLedger()) {
       },
     },
   };
-  installReportGuard(ctx, agent, () => step);
+  installReportGuard(ctx, agent, () => step, budget);
   return {
     warnings,
     setState(next) {
@@ -312,6 +313,99 @@ test('a report on a finished task still resets the budget after a task switch', 
   assert.equal(h.run(), undefined);
   assert.equal(h.warnings.length, 2);
   assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
+});
+
+test('a mid-message finish hard-blocks later actions instead of reusing the cached pass', () => {
+  const initial = reportedLedger();
+  const h = guardHarness(initial);
+  const step = message(
+    call('todo_report'),
+    call('bash', 'bash1'),
+    call('todo_write', 'write1'),
+    call('bash', 'bash2'),
+  );
+  h.setStep(step);
+  assert.equal(h.run('bash1'), undefined);
+
+  const state = finishLedger(initial, 1).state;
+  h.setState(state);
+  const coverage = stepCoverage(state, step, execution('bash2'));
+  assert.equal(coverage.outcome, 'blocked');
+  assert.match(coverage.reason, /当前没有进行中的任务/);
+  assert.match(h.run('bash2'), /当前没有进行中的任务/);
+  assert.equal(h.warnings.length, 0);
+});
+
+test('a mid-message task switch rechecks coverage and spends the message admission', () => {
+  const h = guardHarness(reportedLedger(), createCoverageBudget(1));
+  const step = message(
+    call('todo_report'),
+    call('bash', 'bash1'),
+    call('todo_write', 'write1'),
+    call('bash', 'bash2'),
+  );
+  h.setStep(step);
+  assert.equal(h.run('bash1'), undefined);
+  assert.equal(h.warnings.length, 0);
+
+  let state = writeLedger(reportedLedger(), ['Second']).state;
+  state = updateLedger(state, { finish: 1 }).state;
+  h.setState(state);
+  assert.equal(inProgressTask(state).id, 't2');
+  assert.deepEqual(stepCoverage(state, step, execution('bash2')), {
+    outcome: 'uncovered',
+    coverage: 'failed',
+  });
+
+  assert.equal(h.run('bash2'), undefined);
+  assert.equal(h.warnings.length, 0);
+
+  h.setStep(message(call('bash', 'bash3')));
+  assert.match(h.run('bash3'), /所有工具调用将被拦截/);
+  assert.equal(h.warnings.length, 0);
+});
+
+test('one assistant message spends at most one coverage admission', () => {
+  const h = guardHarness(reportedLedger(), createCoverageBudget(1));
+  h.setStep(message(call('bash', 'bash1'), call('bash', 'bash2')));
+  assert.equal(h.run('bash1'), undefined);
+  assert.equal(h.warnings.length, 1);
+  assert.match(h.warnings[0].content[0].text, /你忘了调用 todo_report/);
+
+  assert.equal(h.run('bash2'), undefined);
+  assert.equal(h.warnings.length, 1);
+
+  h.setStep(message(call('bash', 'bash3')));
+  assert.match(h.run('bash3'), /所有工具调用将被拦截/);
+  assert.equal(h.warnings.length, 1);
+});
+
+test('a reported call covers later actions in the same message without another admission', () => {
+  let state = inProgressLedger();
+  const h = guardHarness(state);
+  const step = message(
+    call('todo_report'),
+    call('bash', 'bash1'),
+    call('bash', 'bash2'),
+  );
+  h.setStep(step);
+  assert.deepEqual(stepCoverage(state, step, execution('bash1')), {
+    outcome: 'uncovered',
+    coverage: 'failed',
+  });
+  assert.equal(h.run('bash1'), undefined);
+  assert.equal(h.warnings.length, 0);
+
+  state = addReport(state, 10, 'todo_report-call');
+  h.setState(state);
+  assert.deepEqual(stepCoverage(state, step, execution('bash2')), { outcome: 'covered' });
+  assert.equal(h.run('bash2'), undefined);
+  assert.equal(h.warnings.length, 0);
+
+  h.setStep(message(call('bash', 'bash3')));
+  assert.equal(h.run('bash3'), undefined);
+  assert.equal(h.warnings.length, 1);
+  assert.match(h.warnings[0].content[0].text, /你忘了调用 todo_report/);
 });
 
 test('a plan without an in-progress task remains a hard block', () => {

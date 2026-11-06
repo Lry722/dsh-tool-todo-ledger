@@ -183,25 +183,33 @@ export function installStepTracker(ctx) {
  */
 export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBudget()) {
   let observedMessage;
-  let hasObserved = false;
-  let observedDecision;
+  let messageAdmission;
   let lastReportToken;
   let failureReported = false;
 
-  function decide(state, coverage, guardedAgent) {
+  function decide(message, state, coverage, guardedAgent) {
     const latest = latestReport(state);
     const latestToken = latest?.callId ?? latest?.seq;
     if (latestToken !== undefined && latestToken !== lastReportToken) {
       lastReportToken = latestToken;
       budget.reset();
     }
+    // Hard blocks and recorded/pending reports never depend on the budget or
+    // on an earlier admission cached for this message.
     if (coverage.outcome === 'blocked') return coverage.reason;
     if (coverage.outcome === 'covered' || coverage.outcome === 'provisional') return undefined;
-    const admission = budget.admit();
-    if (!admission.allowed) {
+    // An assistant message may spend at most one admission. Later uncovered
+    // actions reuse it, including a denial, without steering again.
+    if (observedMessage !== message) {
+      observedMessage = message;
+      messageAdmission = budget.admit();
+      if (coverage.coverage === 'missing' && messageAdmission.warning !== undefined) {
+        steerCoverageWarning(guardedAgent, messageAdmission.warning);
+      }
+    }
+    if (!messageAdmission.allowed) {
       return GUARD_MESSAGES.budgetExhausted;
     }
-    if (coverage.coverage === 'missing' && admission.warning !== undefined) steerCoverageWarning(guardedAgent, admission.warning);
     return undefined;
   }
 
@@ -216,18 +224,16 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
         const coverage = stepCoverage(state, message, execution);
         return coverage.outcome === 'blocked' ? coverage.reason : undefined;
       }
-      if (!hasObserved || observedMessage !== message) {
-        const coverage = stepCoverage(state, message, execution);
-        if (coverage.outcome === 'exempt') {
-          failureReported = false;
-          return undefined;
-        }
-        observedMessage = message;
-        hasObserved = true;
-        observedDecision = decide(state, coverage, execution.agent);
+      // Every action re-reads the current state: an earlier todo_write in the
+      // same message may finish the task or switch the active one.
+      const coverage = stepCoverage(state, message, execution);
+      if (coverage.outcome === 'exempt') {
+        failureReported = false;
+        return undefined;
       }
+      const decision = decide(message, state, coverage, execution.agent);
       failureReported = false;
-      return observedDecision;
+      return decision;
     } catch (error) {
       if (!failureReported) {
         failureReported = true;
