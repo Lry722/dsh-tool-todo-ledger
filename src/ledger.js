@@ -48,7 +48,9 @@ function openTurn(state) {
 
 function rememberInTurn(state, taskId) {
   const turn = openTurn(state);
-  if (turn && !turn.taskIds.includes(taskId)) turn.taskIds.push(taskId);
+  // A closed turn is archived: writes between `turn/end` and the next
+  // `turn/start` must wait for that next turn to pick them up.
+  if (turn && !turn.endStatuses && !turn.taskIds.includes(taskId)) turn.taskIds.push(taskId);
 }
 
 function closeTurn(state, turn, seq, time) {
@@ -509,8 +511,11 @@ function issueSummaries(state, task, range) {
   return [...summaries.values()].sort((left, right) => left.firstSeq - right.firstSeq);
 }
 
-function navigationFields(task) {
+function navigationFields(task, beforeSeq) {
   if (typeof task.startCallId !== 'string' || typeof task.startSeq !== 'number') return {};
+  // Archived turns only expose starts that happened before the turn closed;
+  // the task node itself keeps the latest start for current-plan navigation.
+  if (typeof beforeSeq === 'number' && task.startSeq >= beforeSeq) return {};
   return { startCallId: task.startCallId, startSeq: task.startSeq };
 }
 
@@ -536,7 +541,7 @@ function historyTurnView(state, turn) {
       id,
       content: task.content,
       status: turn.endStatuses?.[id] ?? task.status,
-      ...navigationFields(task),
+      ...navigationFields(task, turn.endSeq),
       issues: issueSummaries(state, task, turn),
     };
   }).filter(Boolean);

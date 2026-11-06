@@ -268,6 +268,64 @@ test('history task navigation fields survive turn snapshots and voiding', () => 
   assert.equal(view.current.length, 0);
 });
 
+test('archived turns only expose navigation that happened before turn end', () => {
+  let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
+  state = writeEvent(state, 2, ['A', 'B']);
+  state = statusEvent(state, 3, 'start', 1);
+  state = turnEvent(state, 4, 'turn/end', 1);
+  state = turnEvent(state, 5, 'turn/start', 2);
+  state = statusEvent(state, 6, 'finish', 1);
+  state = statusEvent(state, 7, 'start', 2);
+
+  let view = ledgerView(state);
+  const first = view.turns.find((turn) => turn.turn === 1);
+  const second = view.turns.find((turn) => turn.turn === 2);
+  const nav = (task) => [task.startCallId, task.startSeq];
+  assert.deepEqual(nav(taskById(first, 't1')), ['call-3', 3], 'a start inside turn 1 stays visible');
+  assert.deepEqual(nav(taskById(first, 't2')), [undefined, undefined], 'B started after turn 1 closed');
+  assert.equal(Object.hasOwn(taskById(first, 't2'), 'startCallId'), false);
+  assert.equal(Object.hasOwn(taskById(first, 't2'), 'startSeq'), false);
+  assert.deepEqual(nav(taskById(second, 't2')), ['call-7', 7], 'the open turn keeps live navigation');
+  assert.deepEqual(view.current.map((task) => [task.id, task.startCallId, task.startSeq]), [
+    ['t1', 'call-3', 3],
+    ['t2', 'call-7', 7],
+  ], 'current plan navigation remains live');
+
+  state = turnEvent(state, 8, 'turn/end', 2);
+  state = turnEvent(state, 9, 'turn/start', 3);
+  view = ledgerView(state);
+  const archivedSecond = view.turns.find((turn) => turn.turn === 2);
+  assert.deepEqual(nav(taskById(archivedSecond, 't2')), ['call-7', 7], 'a start inside turn 2 survives archiving');
+});
+
+test('writes after turn end wait for the next turn and never join the archive', () => {
+  let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
+  state = writeEvent(state, 2, ['A']);
+  state = statusEvent(state, 3, 'start', 1);
+  state = turnEvent(state, 4, 'turn/end', 1);
+
+  const archived = ledgerView(state).turns.find((turn) => turn.turn === 1);
+  state = writeEvent(state, 5, ['B']);
+  const closedTurn = state.turns.find((turn) => turn.turn === 1);
+  assert.deepEqual(closedTurn.taskIds, ['t1'], 'a closed turn must not collect later writes');
+  assert.deepEqual(ledgerView(state).turns.find((turn) => turn.turn === 1), archived);
+
+  state = turnEvent(state, 6, 'turn/start', 2);
+  const nextTurn = state.turns.find((turn) => turn.turn === 2);
+  assert.deepEqual(nextTurn.taskIds, ['t1', 't2']);
+  const view = ledgerView(state);
+  const second = view.turns.find((turn) => turn.turn === 2);
+  assert.deepEqual(second.tasks.map((task) => [task.id, task.content, task.status]), [
+    ['t1', 'A', 'in_progress'],
+    ['t2', 'B', 'pending'],
+  ]);
+  assert.deepEqual(
+    view.turns.filter((turn) => turn.tasks.some((task) => task.id === 't2')).map((turn) => turn.turn),
+    [2],
+    'B belongs to turn 2 only',
+  );
+});
+
 test('node lookup preserves ids and ordering when the nodes array is shuffled', () => {
   const base = writeEvent(emptyLedger(), 1, ['A', 'B', 'C']);
   const state = {
