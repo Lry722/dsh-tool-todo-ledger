@@ -21,7 +21,12 @@ import {
 
 const call = (name, id = `${name}-call`) => ({ type: 'tool-call', id, name, arguments: '{}' });
 const message = (...calls) => ({ content: calls });
-const execution = (rootCallId, name = 'bash') => ({ rootCallId, name });
+const execution = (rootCallId, name = 'bash', callId = rootCallId) => ({ rootCallId, name, callId });
+const ptcExecution = (rootCallId, name, dispatch = 1) => ({
+  rootCallId,
+  name,
+  callId: `${rootCallId}:ptc:${dispatch}`,
+});
 
 function inProgressLedger() {
   return startLedger(writeLedger(emptyLedger(), ['Task']).state, 1).state;
@@ -135,15 +140,37 @@ test('calls outside the tracked assistant step are exempt', () => {
   assert.equal(stepCoverage(reportedLedger(), undefined, execution('bash-call')).outcome, 'exempt');
 });
 
-test('nested PTC sub-calls are judged by their root model call', () => {
-  const step = message(call('todo_report'), call('run_code'));
-  assert.equal(stepCoverage(reportedLedger(), step, execution('run_code-call', 'bash')).outcome, 'covered');
+test('nested PTC sub-calls are judged by their own name, not the run_code container', () => {
+  const step = message(call('run_code', 'run_code-call'));
+  assert.equal(stepCoverage(reportedLedger(), step, execution('run_code-call', 'run_code')).outcome, 'exempt');
+  assert.equal(
+    stepCoverage(reportedLedger(), step, ptcExecution('run_code-call', 'todo_write')).outcome,
+    'exempt',
+  );
+  assert.deepEqual(
+    stepCoverage(reportedLedger(), step, ptcExecution('run_code-call', 'bash')),
+    { outcome: 'provisional' },
+  );
+});
 
-  const missing = message(call('run_code'));
-  assert.deepEqual(stepCoverage(reportedLedger(), missing, execution('run_code-call', 'bash')), {
-    outcome: 'uncovered',
-    coverage: 'missing',
-  });
+test('PTC programs can bootstrap an empty ledger but still gate actions on a task', () => {
+  const step = message(call('run_code', 'run_code-call'));
+  const outer = execution('run_code-call', 'run_code');
+  assert.equal(stepCoverage(emptyLedger(), step, outer).outcome, 'exempt');
+
+  const write = ptcExecution('run_code-call', 'todo_write');
+  const action = ptcExecution('run_code-call', 'bash');
+  assert.equal(stepCoverage(emptyLedger(), step, write).outcome, 'exempt');
+  assert.match(stepCoverage(emptyLedger(), step, action).reason, /没有进行中的任务/);
+  assert.equal(stepCoverage(inProgressLedger(), step, action).outcome, 'provisional');
+});
+
+test('a PTC report is never rejected as a standalone message call', () => {
+  const step = message(call('run_code', 'run_code-call'));
+  assert.equal(
+    stepCoverage(emptyLedger(), step, ptcExecution('run_code-call', 'todo_report')).outcome,
+    'exempt',
+  );
 });
 
 test('coverage budget grants 3, 2 then 1 exemptions before blocking', () => {
@@ -176,8 +203,12 @@ function guardHarness(initialState = reportedLedger(), budget = createCoverageBu
   let step;
   let guard;
   const warnings = [];
+  const listeners = new Map();
   const ctx = {
-    on() {},
+    on(type, fn) {
+      listeners.set(type, fn);
+      return () => listeners.delete(type);
+    },
     sessionProjections: {
       stateOf() {
         return state;
@@ -207,8 +238,11 @@ function guardHarness(initialState = reportedLedger(), budget = createCoverageBu
     setStep(next) {
       step = next;
     },
-    run(rootCallId = 'bash-call', name = 'bash') {
-      return guard({ agent, rootCallId, name });
+    fire(type, event) {
+      listeners.get(type)?.(agent.session, event);
+    },
+    run(rootCallId = 'bash-call', name = 'bash', callId = rootCallId) {
+      return guard({ agent, rootCallId, name, callId });
     },
   };
 }
@@ -406,6 +440,68 @@ test('a reported call covers later actions in the same message without another a
   assert.equal(h.run('bash3'), undefined);
   assert.equal(h.warnings.length, 1);
   assert.match(h.warnings[0].content[0].text, /你忘了调用 todo_report/);
+});
+
+function ptcDispatch(parentCallId, name, isError = false) {
+  return { type: 'tool/ptc-dispatch', data: { parentCallId, name, isError } };
+}
+
+function toolResult(callId) {
+  return { type: 'tool/result', data: { message: { callId } } };
+}
+
+test('a PTC program that reports does not spend the coverage budget', () => {
+  const h = guardHarness(reportedLedger(), createCoverageBudget(1));
+  h.setStep(message(call('run_code', 'run_code-call')));
+  assert.equal(h.run('run_code-call', 'run_code'), undefined);
+  assert.equal(h.run('run_code-call', 'bash', 'run_code-call:ptc:1'), undefined);
+  assert.equal(h.run('run_code-call', 'todo_report', 'run_code-call:ptc:2'), undefined);
+  h.fire('session/event', ptcDispatch('run_code-call', 'bash'));
+  h.fire('session/event', ptcDispatch('run_code-call', 'todo_report'));
+  h.fire('session/event', toolResult('run_code-call'));
+  assert.equal(h.warnings.length, 0);
+});
+
+test('uncovered PTC programs escalate to a pending report requirement', () => {
+  const h = guardHarness(reportedLedger(), createCoverageBudget(1));
+  h.setStep(message(call('run_code', 'run_code-call')));
+
+  // First uncovered program: admitted with a warning.
+  assert.equal(h.run('run_code-call', 'run_code'), undefined);
+  assert.equal(h.run('run_code-call', 'bash', 'run_code-call:ptc:1'), undefined);
+  h.fire('session/event', ptcDispatch('run_code-call', 'bash'));
+  h.fire('session/event', toolResult('run_code-call'));
+  assert.equal(h.warnings.length, 1);
+  assert.match(h.warnings[0].content[0].text, /你忘了调用 todo_report/);
+
+  // Second uncovered program exhausts the budget and requires a report.
+  assert.equal(h.run('run_code-call', 'run_code'), undefined);
+  assert.equal(h.run('run_code-call', 'bash', 'run_code-call:ptc:1'), undefined);
+  h.fire('session/event', ptcDispatch('run_code-call', 'bash'));
+  h.fire('session/event', toolResult('run_code-call'));
+  assert.equal(h.warnings.length, 2);
+  assert.match(h.warnings[1].content[0].text, /没有成功调用 todo_report/);
+
+  assert.match(h.run('run_code-call', 'bash', 'run_code-call:ptc:1'), /没有成功调用 todo_report/);
+  // Todo tools remain available so the program can recover.
+  assert.equal(h.run('run_code-call', 'todo_write', 'run_code-call:ptc:2'), undefined);
+
+  assert.equal(h.run('run_code-call', 'todo_report', 'run_code-call:ptc:3'), undefined);
+  h.fire('session/event', ptcDispatch('run_code-call', 'todo_report'));
+  h.fire('session/event', toolResult('run_code-call'));
+  assert.equal(h.run('run_code-call', 'bash', 'run_code-call:ptc:1'), undefined);
+});
+
+test('a PTC program that bootstraps a task can then run an action', () => {
+  let state = emptyLedger();
+  const h = guardHarness(state, createCoverageBudget(1));
+  h.setStep(message(call('run_code', 'run_code-call')));
+  assert.equal(h.run('run_code-call', 'run_code'), undefined);
+  assert.equal(h.run('run_code-call', 'todo_write', 'run_code-call:ptc:1'), undefined);
+
+  state = startLedger(writeLedger(state, ['Task']).state, 1).state;
+  h.setState(state);
+  assert.equal(h.run('run_code-call', 'bash', 'run_code-call:ptc:2'), undefined);
 });
 
 test('a plan without an in-progress task remains a hard block', () => {

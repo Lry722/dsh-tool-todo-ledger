@@ -1,8 +1,10 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
+import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools';
 import { GUARD_MESSAGES, NOTICES, fillPrompt } from './prompts.js';
 
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
+const PTC_DISPATCH_MARKER = ':ptc:';
 
 export function stepToolCalls(message) {
   return message?.content?.filter((block) => block.type === 'tool-call') ?? [];
@@ -73,6 +75,20 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
 }
 
 /**
+ * Whether an execution is a nested PTC dispatch rather than the model-visible
+ * call itself. PTC sub-call ids are derived from the outer `run_code` call id.
+ * @param execution - the tool execution being classified.
+ * @returns true for a PTC sub-dispatch.
+ */
+export function isPtcDispatch(execution) {
+  const callId = String(execution?.callId ?? '');
+  const rootCallId = String(execution?.rootCallId ?? '');
+  return callId !== rootCallId
+    && rootCallId.length > 0
+    && callId.startsWith(`${rootCallId}${PTC_DISPATCH_MARKER}`);
+}
+
+/**
  * Classify one tool execution against the current todo plan.
  * A work step needs an in-progress main task and a `todo_report` somewhere in
  * the same assistant message. Report position and count are tolerated: a report
@@ -91,6 +107,21 @@ export function stepCoverage(state, message, execution) {
   const root = calls.find((call) => call.id === execution.rootCallId);
   // Calls outside the tracked assistant step cannot be model actions; leave them unguarded.
   if (!root) return { outcome: 'exempt' };
+
+  // A PTC sub-dispatch is one call inside a `run_code` program. Todo tools stay
+  // exempt so a program can bootstrap an empty ledger; actions need an active
+  // task, while report coverage is judged once per program after it finishes
+  // (there is no message-level call list to look ahead into).
+  if (isPtcDispatch(execution)) {
+    if (EXEMPT_TOOLS.has(execution.name)) return { outcome: 'exempt' };
+    if (!inProgressTask(state)) return { outcome: 'blocked', reason: GUARD_MESSAGES.noActiveTask };
+    return { outcome: 'provisional' };
+  }
+
+  // The outer program is judged by its nested dispatches, not by the container
+  // call: requiring an active task here would make an empty ledger impossible
+  // to bootstrap because PTC mode denies direct todo tool calls.
+  if (root.name === RUN_CODE_NAME) return { outcome: 'exempt' };
 
   if (EXEMPT_TOOLS.has(root.name)) {
     // A report must accompany any other tool; reporting alone only doubles requests.
@@ -186,6 +217,10 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   let messageAdmission;
   let lastReportToken;
   let failureReported = false;
+  // PTC programs have no message-level call list, so coverage is judged once
+  // per program after its nested dispatches settle.
+  const ptcPrograms = new Map();
+  let ptcPendingReport = false;
 
   function decide(message, state, coverage, guardedAgent) {
     const latest = latestReport(state);
@@ -213,9 +248,65 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
     return undefined;
   }
 
-  return agent.ctx.tools.guard((execution) => {
+  /**
+   * Fold the PTC dispatch trail into a per-program coverage record. Dispatch
+   * events settle before the outer `run_code` result, so the result event is
+   * the program boundary.
+   */
+  const trackPtcProgram = (session, event) => {
+    if (session !== agent.session) return;
+    try {
+      if (event.type === 'session/disposed') {
+        ptcPrograms.clear();
+        return;
+      }
+      if (event.type === 'tool/call' && event.data?.name === RUN_CODE_NAME) {
+        // A new program supersedes a record whose result never arrived.
+        ptcPrograms.clear();
+        return;
+      }
+      if (event.type === 'tool/ptc-dispatch') {
+        const parentCallId = event.data?.parentCallId;
+        if (typeof parentCallId !== 'string') return;
+        const record = ptcPrograms.get(parentCallId) ?? { hadAction: false, reported: false };
+        if (event.data?.name === 'todo_report') {
+          if (event.data?.isError !== true) {
+            record.reported = true;
+            ptcPendingReport = false;
+            budget.reset();
+          }
+        } else if (!EXEMPT_TOOLS.has(event.data?.name)) {
+          record.hadAction = true;
+        }
+        ptcPrograms.set(parentCallId, record);
+        return;
+      }
+      if (event.type !== 'tool/result') return;
+      const callId = event.data?.message?.callId;
+      if (typeof callId !== 'string') return;
+      const record = ptcPrograms.get(callId);
+      if (!record) return;
+      ptcPrograms.delete(callId);
+      if (!record.hadAction || record.reported) return;
+      const admission = budget.admit();
+      if (!admission.allowed) {
+        ptcPendingReport = true;
+        steerCoverageWarning(agent, GUARD_MESSAGES.ptcPendingReport);
+      } else if (admission.warning !== undefined) {
+        steerCoverageWarning(agent, admission.warning);
+      }
+    } catch (_error) {
+      // Observation is best-effort; the guard must not fail a tool call.
+    }
+  };
+
+  const disposePtcTracking = ctx.on('session/event', trackPtcProgram);
+  const disposeGuard = agent.ctx.tools.guard((execution) => {
     if (!execution.agent) return undefined;
     try {
+      if (isPtcDispatch(execution) && !EXEMPT_TOOLS.has(execution.name) && ptcPendingReport) {
+        return GUARD_MESSAGES.ptcPendingReport;
+      }
       const state = ctx.sessionProjections.stateOf(execution.agent.session, 'todoLedger');
       const message = stepOf(execution.agent.session);
       // Reports never inherit a decision cached for another call in the same
@@ -246,4 +337,8 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       return undefined;
     }
   });
+  return () => {
+    disposeGuard?.();
+    disposePtcTracking?.();
+  };
 }
