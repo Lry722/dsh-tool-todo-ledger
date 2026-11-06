@@ -41,8 +41,8 @@ function createContext(sessionId, instance) {
     const dispose = callback();
     return typeof dispose === 'function' ? dispose : () => {};
   };
-  const register = (options) => {
-    registrations.push(options);
+  const register = (options, component) => {
+    registrations.push({ ...options, component });
     return () => {};
   };
   return {
@@ -83,6 +83,49 @@ function dockFor(ctx) {
   const dock = ctx.registrations.find((options) => options.name === 'conversation.input.dock');
   assert.ok(dock?.inject, 'conversation.input.dock must register an inject face');
   return dock.inject();
+}
+
+function renderTree(node) {
+  if (node === null || typeof node !== 'object') return node;
+  if (Array.isArray(node)) return node.map(renderTree);
+  if (typeof node.type === 'function') {
+    const children = node.children.length === 1 ? node.children[0] : node.children;
+    return renderTree(node.type({ ...node.props, children }));
+  }
+  return { ...node, children: node.children.map(renderTree) };
+}
+
+function elementsOf(node) {
+  if (node === null || typeof node !== 'object') return [];
+  if (Array.isArray(node)) return node.flatMap(elementsOf);
+  return [node, ...node.children.flatMap(elementsOf)];
+}
+
+function stringsOf(node) {
+  if (typeof node === 'string') return [node];
+  if (node === null || typeof node !== 'object') return [];
+  if (Array.isArray(node)) return node.flatMap(stringsOf);
+  return node.children.flatMap(stringsOf);
+}
+
+function sidebarFor(ctx) {
+  const { apply } = definition.factory(requireModule);
+  apply(ctx);
+  const tab = ctx.registrations.find((options) => options.name === 'sidebar.right.pane.tab');
+  assert.equal(typeof tab?.component, 'function', 'sidebar.right.pane.tab must register a component');
+  const { uiStates, openTodoStart } = tab.inject();
+  return {
+    uiStates,
+    render(useProjection) {
+      return renderTree(tab.component({
+        useProjection,
+        t: (key) => key,
+        sessionId: 'session-1',
+        openTodoStart,
+        uiStates,
+      }));
+    },
+  };
 }
 
 test('a trajectory jump focuses the requested tool call through the session view', async () => {
@@ -133,4 +176,53 @@ test('an unavailable session store reports failure without touching the chat vie
   const dock = dockFor(ctx);
 
   assert.equal(await dock.openTodoStart('session-1', { startCallId: 'call-1' }), false);
+});
+
+test('the sidebar shows no empty state while the projection is still loading', () => {
+  const ctx = createContext('session-1');
+  const sidebar = sidebarFor(ctx);
+
+  const current = sidebar.render(() => undefined);
+  assert.ok(!stringsOf(current).includes('currentPlanEmpty'));
+  const section = elementsOf(current).find((element) => element.props?.className === 'todo-ledger-sidebar');
+  assert.equal(section?.props['aria-busy'], true);
+
+  sidebar.uiStates.set('session-1', { view: 'history', selectedTurn: 0 });
+  const history = sidebar.render(() => undefined);
+  assert.ok(!stringsOf(history).includes('historyEmpty'));
+});
+
+test('the sidebar renders empty states only for a loaded empty projection', () => {
+  const ctx = createContext('session-1');
+  const sidebar = sidebarFor(ctx);
+  const projection = () => ({ current: [], turns: [], currentTurn: 0 });
+
+  const current = sidebar.render(projection);
+  assert.ok(stringsOf(current).includes('currentPlanEmpty'));
+  const section = elementsOf(current).find((element) => element.props?.className === 'todo-ledger-sidebar');
+  assert.equal(section?.props['aria-busy'], undefined);
+
+  sidebar.uiStates.set('session-1', { view: 'history', selectedTurn: 0 });
+  const history = sidebar.render(projection);
+  assert.ok(stringsOf(history).includes('historyEmpty'));
+});
+
+test('task text and the sidebar container use distinct classes', () => {
+  const ctx = createContext('session-1');
+  const sidebar = sidebarFor(ctx);
+  const tree = sidebar.render(() => ({
+    current: [{ id: 'task-1', index: 1, status: 'in_progress', content: 'Ship the fix', issues: [] }],
+    turns: [],
+    currentTurn: 0,
+  }));
+
+  const elements = elementsOf(tree);
+  assert.deepEqual(
+    elements.filter((element) => element.props?.className === 'todo-ledger-sidebar__content').map((element) => element.type),
+    ['div'],
+  );
+  assert.deepEqual(
+    elements.filter((element) => element.props?.className === 'todo-ledger-sidebar__task-content').map((element) => [element.type, element.children[0]]),
+    [['span', 'Ship the fix']],
+  );
 });

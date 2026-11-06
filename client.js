@@ -128,10 +128,10 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__glyph{display:grid;flex:none;place-items:center;width:16px;height:22px}
       .todo-ledger-sidebar__index{flex:none;min-width:20px;padding-right:2px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:22px;font-variant-numeric:tabular-nums;text-align:right}
       .todo-ledger-sidebar__task-main{flex:1;min-width:0}
-      .todo-ledger-sidebar__content{display:block;min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);font-size:13px;line-height:22px}
-      .todo-ledger-sidebar__task[data-status=in_progress] .todo-ledger-sidebar__content{color:var(--dsw-alias-label-primary);font-weight:500}
-      .todo-ledger-sidebar__task[data-status=completed] .todo-ledger-sidebar__content{color:var(--dsw-alias-label-secondary)}
-      .todo-ledger-sidebar__task[data-status=void] .todo-ledger-sidebar__content{text-decoration:line-through;color:var(--dsw-alias-label-tertiary)}
+      .todo-ledger-sidebar__task-content{display:block;min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);font-size:13px;line-height:22px}
+      .todo-ledger-sidebar__task[data-status=in_progress] .todo-ledger-sidebar__task-content{color:var(--dsw-alias-label-primary);font-weight:500}
+      .todo-ledger-sidebar__task[data-status=completed] .todo-ledger-sidebar__task-content{color:var(--dsw-alias-label-secondary)}
+      .todo-ledger-sidebar__task[data-status=void] .todo-ledger-sidebar__task-content{text-decoration:line-through;color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-sidebar__icon,.todo-ledger-sidebar__issue-toggle{display:inline-flex;flex:none;align-items:center;justify-content:center;gap:3px;width:24px;height:24px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;transition:background-color .12s,color .12s,opacity .12s}
       .todo-ledger-sidebar__icon:hover:not(:disabled),.todo-ledger-sidebar__issue-toggle:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .todo-ledger-sidebar__task-jump{height:22px;margin-top:0;font-size:15px;line-height:1;opacity:0;pointer-events:none}
@@ -532,7 +532,7 @@ window.__ModuleLoader__.load({
             h(StateDot, { state: statusDotState[item.status] })),
           showIndex ? h('span', { className: 'todo-ledger-sidebar__index' }, item.index) : null,
           h('div', { className: 'todo-ledger-sidebar__task-main' },
-            h('span', { className: 'todo-ledger-sidebar__content', title: item.content }, item.content),
+            h('span', { className: 'todo-ledger-sidebar__task-content', title: item.content }, item.content),
             item.issues.length > 0 ? h('button', {
               type: 'button',
               className: 'todo-ledger-sidebar__issue-toggle',
@@ -615,6 +615,7 @@ window.__ModuleLoader__.load({
       const [view, setView] = React.useState(saved?.view ?? 'current');
       const [selectedTurn, setSelectedTurn] = React.useState(saved?.selectedTurn);
       const projection = useProjection('todoLedger');
+      const loaded = projection !== undefined;
       const turns = (projection?.turns ?? []).filter((turn) => turn.turn !== 0 || turn.total > 0);
       const currentTurn = projection?.currentTurn ?? 0;
       const { jumping, jumpFailed, jump } = useTaskJump((item) => openTodoStart(sessionId, item));
@@ -628,7 +629,11 @@ window.__ModuleLoader__.load({
         uiStates.set(sessionId, { view, selectedTurn });
       }, [sessionId, view, selectedTurn, uiStates]);
       const onJump = (item) => jump(item);
-      return h('section', { className: 'todo-ledger-sidebar', 'aria-label': t('sidebarTitle') },
+      return h('section', {
+        className: 'todo-ledger-sidebar',
+        'aria-label': t('sidebarTitle'),
+        'aria-busy': !loaded || undefined,
+      },
         h('style', null, css),
         h('div', { className: 'todo-ledger-sidebar__tabs', role: 'tablist' },
           h('button', { type: 'button', role: 'tab', className: 'todo-ledger-sidebar__tab', 'aria-selected': view === 'current', onClick: () => setView('current') }, t('currentPlan')),
@@ -636,14 +641,16 @@ window.__ModuleLoader__.load({
         ),
         h('div', { className: 'todo-ledger-sidebar__content' },
           h('div', { className: 'todo-ledger-sidebar__body', role: 'tabpanel', 'data-history': view === 'history' || undefined },
-            view === 'current'
-              ? ((projection?.current.length ?? 0) === 0
-                ? h('div', { className: 'todo-ledger-sidebar__empty' }, t('currentPlanEmpty'))
-                : h(TaskList, { items: projection.current, scope: 'current', expandActive: true, t, jumping, onJump }))
-              : h(HistoryView, { turns, currentTurn, selectedTurn: effectiveSelection, onSelect: setSelectedTurn, t, jumping, onJump }),
+            !loaded
+              ? null
+              : view === 'current'
+                ? (projection.current.length === 0
+                  ? h('div', { className: 'todo-ledger-sidebar__empty' }, t('currentPlanEmpty'))
+                  : h(TaskList, { items: projection.current, scope: 'current', expandActive: true, t, jumping, onJump }))
+                : h(HistoryView, { turns, currentTurn, selectedTurn: effectiveSelection, onSelect: setSelectedTurn, t, jumping, onJump }),
             jumpFailed ? h('div', { className: 'todo-ledger-sidebar__jump-error', role: 'alert' }, t('jumpFailed')) : null,
           ),
-          view === 'history' ? h(TurnRail, { turns, selectedTurn: effectiveSelection, onSelect: setSelectedTurn, t }) : null,
+          loaded && view === 'history' ? h(TurnRail, { turns, selectedTurn: effectiveSelection, onSelect: setSelectedTurn, t }) : null,
         ),
       );
     }
