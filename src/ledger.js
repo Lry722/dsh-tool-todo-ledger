@@ -24,6 +24,24 @@ function clone(value) {
   return structuredClone(value);
 }
 
+// Read-path node index. Keyed by the `state.nodes` array reference: every
+// semantic fold replaces that array and never mutates a published state, so an
+// index can be reused for as long as the array identity is unchanged. Keeping
+// the first node for a duplicated id mirrors the old `nodes.find` behavior.
+const nodeIndexCache = new WeakMap();
+
+function nodeById(state, id) {
+  let index = nodeIndexCache.get(state.nodes);
+  if (index === undefined) {
+    index = new Map();
+    for (const node of state.nodes) {
+      if (!index.has(node.id)) index.set(node.id, node);
+    }
+    nodeIndexCache.set(state.nodes, index);
+  }
+  return index.get(id);
+}
+
 function openTurn(state) {
   return state.turns.find((entry) => entry.turn === state.currentTurn);
 }
@@ -102,14 +120,14 @@ export function taskAt(state, index, toolName) {
 
 export function legacyTodos(state) {
   return state.currentIds.map((id) => {
-    const task = state.nodes.find((node) => node.id === id);
+    const task = nodeById(state, id);
     return { content: task.content, status: task.status };
   });
 }
 
 function activeIssue(state, taskId) {
   if (state.lastReportTaskId !== taskId) return undefined;
-  const task = state.nodes.find((node) => node.id === taskId);
+  const task = nodeById(state, taskId);
   if (task?.status !== 'in_progress') return undefined;
   const latest = task.reports.at(-1);
   if (!latest?.inIssue || typeof latest.issue !== 'string') return undefined;
@@ -121,7 +139,7 @@ export function dockTodos(state) {
   const current = new Set(state.currentIds);
   const ids = turn ? turn.taskIds : state.currentIds;
   return ids.filter((id) => current.has(id)).map((id) => {
-    const task = state.nodes.find((node) => node.id === id);
+    const task = nodeById(state, id);
     const result = { content: task.content, status: task.status };
     if (typeof task.startCallId === 'string' && typeof task.startSeq === 'number') {
       result.startCallId = task.startCallId;
@@ -315,7 +333,7 @@ export function reportLedger(state, index, inIssue, rawIssue) {
 
 export function numberedPlan(state) {
   return state.currentIds.map((id, index) => {
-    const task = state.nodes.find((node) => node.id === id);
+    const task = nodeById(state, id);
     return { index: index + 1, content: task.content, status: task.status };
   });
 }
@@ -323,11 +341,11 @@ export function numberedPlan(state) {
 export function currentView(state) {
   let first = 0;
   for (let index = 0; index < state.currentIds.length; index += 1) {
-    const task = state.nodes.find((node) => node.id === state.currentIds[index]);
+    const task = nodeById(state, state.currentIds[index]);
     if (task.status === 'completed') first = index;
   }
   const tasks = state.currentIds.slice(first).map((id, offset) => {
-    const task = state.nodes.find((node) => node.id === id);
+    const task = nodeById(state, id);
     const result = { index: first + offset + 1, content: task.content, status: task.status };
     if (task.status === 'in_progress' && state.lastReportTaskId === id && task.reports.length > 0) {
       const latest = task.reports.at(-1);
@@ -369,9 +387,10 @@ export function foldLedgerEvent(state, event) {
   if (event.type === 'turn/start') return openNextTurn(state, event);
   if (event.type === 'turn/end') return closeCurrentTurn(state, event);
   if (event.type === 'tool/call' && typeof event.data?.callId === 'string') {
-    const next = clone(state);
-    next.lastToolCallId = event.data.callId;
-    return next;
+    if (state.lastToolCallId === event.data.callId) return state;
+    // Shallow copy: the view ignores lastToolCallId, so the projection can share
+    // nodes/currentIds/turns and reuse the cached view object.
+    return { ...state, lastToolCallId: event.data.callId };
   }
   if (event.type !== 'todo/write' || !event.data || !Array.isArray(event.data.todos)) return state;
   const operation = event.data.ledger;
@@ -477,7 +496,7 @@ function navigationFields(task) {
 
 function currentPlanView(state) {
   return state.currentIds.map((id, index) => {
-    const task = state.nodes.find((node) => node.id === id);
+    const task = nodeById(state, id);
     return {
       id,
       index: index + 1,
@@ -491,7 +510,7 @@ function currentPlanView(state) {
 
 function historyTurnView(state, turn) {
   const tasks = turn.taskIds.map((id) => {
-    const task = state.nodes.find((node) => node.id === id);
+    const task = nodeById(state, id);
     if (!task) return undefined;
     return {
       id,
@@ -514,13 +533,46 @@ function historyTurnView(state, turn) {
   };
 }
 
-export function ledgerView(state) {
+function computeLedgerView(state) {
   return {
     currentTurn: state.currentTurn,
     dock: dockTodos(state),
     current: currentPlanView(state),
     turns: state.turns.map((turn) => historyTurnView(state, turn)),
   };
+}
+
+// View memo. The key is the `state.nodes` array reference: every semantic fold
+// (`todo/write`, `turn/start`, `turn/end`) deep-clones the state, so a new nodes
+// array always means new node/report/turn contents, and no published state is
+// mutated in place. Node contents are therefore a pure function of that array
+// identity. The view also reads currentIds/turns/currentTurn/lastReportTaskId,
+// so those are compared separately; it deliberately ignores lastToolCallId (a
+// shallow `tool/call` copy must hit) and nextTaskNumber/version.
+// A hit returns the exact same object so the projection registry can dedupe by
+// Object.is without re-running Zod parsing or JSON serialization.
+const ledgerViewCache = new WeakMap();
+
+export function ledgerView(state) {
+  const cached = ledgerViewCache.get(state.nodes);
+  if (
+    cached !== undefined
+    && cached.currentIds === state.currentIds
+    && cached.turns === state.turns
+    && cached.currentTurn === state.currentTurn
+    && cached.lastReportTaskId === state.lastReportTaskId
+  ) {
+    return cached.view;
+  }
+  const view = computeLedgerView(state);
+  ledgerViewCache.set(state.nodes, {
+    currentIds: state.currentIds,
+    turns: state.turns,
+    currentTurn: state.currentTurn,
+    lastReportTaskId: state.lastReportTaskId,
+    view,
+  });
+  return view;
 }
 
 export function defaultHistoryTurn(turns) {

@@ -267,3 +267,26 @@ test('history task navigation fields survive turn snapshots and voiding', () => 
   });
   assert.equal(view.current.length, 0);
 });
+
+test('node lookup preserves ids and ordering when the nodes array is shuffled', () => {
+  const base = writeEvent(emptyLedger(), 1, ['A', 'B', 'C']);
+  const state = {
+    ...base,
+    nodes: [base.nodes[2], base.nodes[0], base.nodes[1]],
+    turns: [{ ...base.turns[0], taskIds: ['t3', 't1', 't2'] }],
+  };
+
+  const view = ledgerView(state);
+  assert.deepEqual(view.current.map((task) => [task.id, task.index, task.content]), [
+    ['t1', 1, 'A'],
+    ['t2', 2, 'B'],
+    ['t3', 3, 'C'],
+  ]);
+  assert.deepEqual(view.dock.map((task) => task.content), ['C', 'A', 'B']);
+  assert.deepEqual(view.turns[0].tasks.map((task) => task.id), ['t3', 't1', 't2']);
+  assert.deepEqual(legacyTodos(state), [
+    { content: 'A', status: 'pending' },
+    { content: 'B', status: 'pending' },
+    { content: 'C', status: 'pending' },
+  ]);
+});

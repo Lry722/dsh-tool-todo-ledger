@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  LEDGER_VERSION,
   currentView,
   dockTodos,
   emptyLedger,
   finishLedger,
   foldLedgerEvent,
+  ledgerView,
   legacyTodos,
   numberedPlan,
   reportLedger,
@@ -21,6 +23,84 @@ function ledgerMessage(key, values) {
 
 function planned() {
   return writeLedger(emptyLedger(), ['Confirm requirements', 'Implement ledger', 'Add tests']).state;
+}
+
+function at(seq) {
+  return { seq, time: seq * 100 };
+}
+
+function writeEvent(state, seq, todos, reorderFrom) {
+  const result = writeLedger(state, todos, reorderFrom, at(seq));
+  return foldLedgerEvent(state, {
+    type: 'todo/write',
+    ...at(seq),
+    data: {
+      todos: legacyTodos(result.state),
+      ledger: {
+        version: LEDGER_VERSION,
+        operation: 'write',
+        mode: result.mode,
+        ...(result.reorderFrom === undefined ? {} : { reorderFrom: result.reorderFrom }),
+        added: result.added.map(({ id, content }) => ({ id, content })),
+        invalidatedIds: result.invalidated.map((task) => task.id),
+      },
+    },
+  });
+}
+
+function startEvent(state, seq, index, callId) {
+  const result = startLedger(state, index);
+  return foldLedgerEvent(state, {
+    type: 'todo/write',
+    ...at(seq),
+    data: {
+      todos: legacyTodos(result.state),
+      ledger: {
+        version: LEDGER_VERSION,
+        operation: 'start',
+        taskId: result.taskId,
+        ...(callId === undefined ? {} : { callId }),
+      },
+    },
+  });
+}
+
+function finishEvent(state, seq, index) {
+  const result = finishLedger(state, index);
+  return foldLedgerEvent(state, {
+    type: 'todo/write',
+    ...at(seq),
+    data: {
+      todos: legacyTodos(result.state),
+      ledger: { version: LEDGER_VERSION, operation: 'finish', taskId: result.taskId },
+    },
+  });
+}
+
+function reportEvent(state, seq, index, inIssue, issue, callId) {
+  const result = reportLedger(state, index, inIssue, issue);
+  return foldLedgerEvent(state, {
+    type: 'todo/write',
+    ...at(seq),
+    data: {
+      todos: legacyTodos(result.state),
+      ledger: {
+        version: LEDGER_VERSION,
+        operation: 'report',
+        taskId: result.taskId,
+        ...(callId === undefined ? {} : { callId }),
+        report: result.report,
+      },
+    },
+  });
+}
+
+function turnEvent(state, seq, type, turn) {
+  return foldLedgerEvent(state, {
+    type,
+    ...at(seq),
+    data: type === 'turn/start' ? { turn } : { turn, reason: { kind: 'stop' } },
+  });
 }
 
 test('append assigns stable ids and current indices', () => {
@@ -286,4 +366,117 @@ test('a new turn hides completed Dock items without changing the compatibility s
   const next = foldLedgerEvent(state, { type: 'turn/start', seq: 8, time: 800, data: { turn: 1 } });
   assert.deepEqual(dockTodos(next), []);
   assert.deepEqual(legacyTodos(next), [{ content: 'One', status: 'completed' }]);
+});
+
+test('tool/call shares nodes, current ids and turns while updating the call id', () => {
+  const previous = planned();
+  const next = foldLedgerEvent(previous, {
+    type: 'tool/call',
+    seq: 10,
+    time: 1000,
+    data: { callId: 'call-10' },
+  });
+
+  assert.notStrictEqual(next, previous);
+  assert.equal(next.lastToolCallId, 'call-10');
+  assert.strictEqual(next.nodes, previous.nodes);
+  assert.strictEqual(next.currentIds, previous.currentIds);
+  assert.strictEqual(next.turns, previous.turns);
+  assert.strictEqual(next.currentTurn, previous.currentTurn);
+  assert.strictEqual(next.lastReportTaskId, previous.lastReportTaskId);
+  assert.strictEqual(ledgerView(next), ledgerView(previous), 'the shallow copy must reuse the memoized view');
+});
+
+test('repeating the same tool call id leaves the state untouched', () => {
+  const first = foldLedgerEvent(planned(), {
+    type: 'tool/call',
+    seq: 11,
+    time: 1100,
+    data: { callId: 'call-11' },
+  });
+  const second = foldLedgerEvent(first, {
+    type: 'tool/call',
+    seq: 12,
+    time: 1200,
+    data: { callId: 'call-11' },
+  });
+
+  assert.strictEqual(second, first);
+});
+
+test('semantic folds invalidate the memoized view without stale output', () => {
+  const plannedState = planned();
+  const startedState = startLedger(plannedState, 1).state;
+  const turnOpen = turnEvent(startedState, 25, 'turn/start', 1);
+  const transitions = [
+    ['report', startedState, reportEvent(startedState, 21, 1, true, 'Fresh issue', 'report-21')],
+    ['start', plannedState, startEvent(plannedState, 22, 1)],
+    ['finish', startedState, finishEvent(startedState, 23, 1)],
+    ['write', plannedState, writeEvent(plannedState, 24, ['Fourth'])],
+    ['turn/start', startedState, turnOpen],
+    ['turn/end', turnOpen, turnEvent(turnOpen, 26, 'turn/end', 1)],
+  ];
+
+  for (const [name, previous, next] of transitions) {
+    const previousView = ledgerView(previous);
+    const nextView = ledgerView(next);
+    assert.notStrictEqual(nextView, previousView, `${name} must publish a new view object`);
+    assert.deepEqual(nextView, ledgerView(structuredClone(next)), `${name} must match a fresh view computation`);
+  }
+});
+
+test('the view memo key compares plan and turn inputs independently of nodes', () => {
+  const state = planned();
+  const variants = [
+    ['currentIds', { ...state, currentIds: [...state.currentIds] }],
+    ['turns', { ...state, turns: [...state.turns] }],
+    ['currentTurn', { ...state, currentTurn: state.currentTurn + 1 }],
+    ['lastReportTaskId', { ...state, lastReportTaskId: 't2' }],
+  ];
+
+  for (const [field, variant] of variants) {
+    const baseView = ledgerView(state);
+    const variantView = ledgerView(variant);
+    assert.notStrictEqual(variantView, baseView, `${field} must invalidate the memo`);
+    assert.deepEqual(variantView, ledgerView(structuredClone(variant)), `${field} must not produce stale output`);
+  }
+
+  const baseView = ledgerView(state);
+  const ignored = { ...state, lastToolCallId: 'other-call', nextTaskNumber: 99 };
+  assert.strictEqual(ledgerView(ignored), baseView, 'fields outside the view must not invalidate the memo');
+});
+
+test('older start and report replay recover the latest tool call after a shallow copy', () => {
+  let state = planned();
+  state = foldLedgerEvent(state, {
+    type: 'tool/call',
+    seq: 30,
+    time: 3000,
+    data: { callId: 'older-call' },
+  });
+
+  state = startEvent(state, 31, 1);
+  const started = state.nodes[0];
+  assert.equal(started.startCallId, 'older-call');
+  assert.equal(started.startSeq, 31);
+
+  state = reportEvent(state, 32, 1, true, 'Recovered issue');
+  assert.equal(state.nodes[0].reports[0].callId, 'older-call');
+  assert.deepEqual(ledgerView(state).current[0].issues, [{
+    name: 'Recovered issue',
+    firstSeq: 32,
+    lastSeq: 32,
+    active: true,
+    startCallId: 'older-call',
+    startSeq: 32,
+  }]);
+});
+
+test('read paths keep failing loudly when a current id has no node', () => {
+  const state = planned();
+  const broken = { ...state, currentIds: [...state.currentIds, 'missing'] };
+
+  assert.throws(() => legacyTodos(broken), TypeError);
+  assert.throws(() => numberedPlan(broken), TypeError);
+  assert.throws(() => currentView(broken), TypeError);
 });
