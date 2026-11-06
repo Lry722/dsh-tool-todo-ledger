@@ -186,6 +186,58 @@ test('composite updates validate fully without mutating the input state', () => 
   ]);
 });
 
+test('composite operations publish intermediate legacy snapshots instead of full states', () => {
+  let state = writeLedger(emptyLedger(), ['Confirm', 'Implement', 'Test', 'Document']).state;
+  state = startLedger(state, 1).state;
+  state = finishLedger(state, 1).state;
+  state = startLedger(state, 2).state;
+  const before = structuredClone(state);
+  const meta = at(40);
+  const result = updateLedger(state, {
+    finish: 2,
+    reorderFrom: 3,
+    todos: ['Test replacement', 'Write documentation'],
+  }, meta);
+
+  const finishedStep = finishLedger(before, 2);
+  const writeStep = writeLedger(finishedStep.state, ['Test replacement', 'Write documentation'], 3, meta);
+  const startedStep = startLedger(writeStep.state, 3);
+
+  assert.deepEqual(result.operations, [
+    { todos: legacyTodos(finishedStep.state), ledger: { operation: 'finish', taskId: 't2' } },
+    {
+      todos: legacyTodos(writeStep.state),
+      ledger: {
+        operation: 'write',
+        mode: writeStep.mode,
+        reorderFrom: writeStep.reorderFrom,
+        added: writeStep.added.map(({ id, content }) => ({ id, content })),
+        invalidatedIds: writeStep.invalidated.map((task) => task.id),
+      },
+    },
+    { todos: legacyTodos(startedStep.state), ledger: { operation: 'start', taskId: startedStep.taskId } },
+  ]);
+  for (const operation of result.operations) {
+    assert.equal(Object.hasOwn(operation, 'state'), false, 'operations must not retain intermediate states');
+  }
+  assert.equal(Object.hasOwn(result.write, 'state'), false, 'the write result must not retain an intermediate state');
+  assert.deepEqual(legacyTodos(result.state), legacyTodos(startedStep.state));
+  assert.deepEqual(numberedPlan(result.state), numberedPlan(startedStep.state));
+  assert.deepEqual(state, before, 'a successful composite must not mutate its input');
+});
+
+test('a failed composite with a valid finish leaves the input state untouched', () => {
+  const state = startLedger(planned(), 1).state;
+  const before = structuredClone(state);
+  assert.throws(
+    () => updateLedger(state, { finish: 1, reorderFrom: 4 }),
+    ledgerMessage('reorderRange', { count: 3 }),
+  );
+  assert.deepEqual(state, before, 'the working copy must not leak a successful finish into the input');
+  assert.equal(state.nodes[0].status, 'in_progress');
+  assert.equal(state.nextTaskNumber, 4);
+});
+
 test('reports validate issues and expose only the active issue', () => {
   const started = startLedger(planned(), 1).state;
   assert.throws(() => reportLedger(started, 1, true), ledgerMessage('issueRequired'));

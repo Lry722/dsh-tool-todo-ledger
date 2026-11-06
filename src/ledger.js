@@ -157,7 +157,9 @@ export function dockTodos(state) {
   });
 }
 
-export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time: 0 }) {
+// Validate and apply a write to a mutable working copy. Public entry points
+// clone first; the composite update reuses one working copy across steps.
+function applyWrite(state, rawTasks, reorderFrom, meta) {
   const tasks = normalizeTasks(rawTasks);
   const reorder = reorderFrom !== undefined;
   if (!reorder && tasks.length === 0) throw ledgerError('appendTaskRequired');
@@ -165,7 +167,6 @@ export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time:
     throw ledgerError('reorderRange', { count: state.currentIds.length });
   }
 
-  const next = clone(state);
   const invalidatedIds = [];
   const invalidated = [];
   if (reorder) {
@@ -179,9 +180,13 @@ export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time:
     if (invalidatedIds.length === 0 && tasks.length === 0) {
       throw ledgerError('reorderNoop');
     }
+  }
+
+  // Full validation finished above; everything below mutates the working copy.
+  if (reorder) {
     const discarded = new Set(invalidatedIds);
-    next.currentIds = next.currentIds.filter((id) => !discarded.has(id));
-    for (const node of next.nodes) {
+    state.currentIds = state.currentIds.filter((id) => !discarded.has(id));
+    for (const node of state.nodes) {
       if (!discarded.has(node.id)) continue;
       node.status = 'void';
       node.voidedSeq = meta.seq;
@@ -191,9 +196,9 @@ export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time:
 
   const added = [];
   for (const content of tasks) {
-    const id = `t${next.nextTaskNumber}`;
-    next.nextTaskNumber += 1;
-    next.nodes.push({
+    const id = `t${state.nextTaskNumber}`;
+    state.nextTaskNumber += 1;
+    state.nodes.push({
       id,
       content,
       status: 'pending',
@@ -201,20 +206,28 @@ export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time:
       createdSeq: meta.seq,
       createdTime: meta.time,
     });
-    next.currentIds.push(id);
-    rememberInTurn(next, id);
+    state.currentIds.push(id);
+    rememberInTurn(state, id);
     added.push({ id, content });
   }
-  if (reorder) next.lastReportTaskId = null;
+  if (reorder) state.lastReportTaskId = null;
+  // `nodes` gained entries under the same array identity; drop any cached
+  // read-path index so later lookups see the appended nodes.
+  nodeIndexCache.delete(state.nodes);
 
   const numberedAdded = added.map((task) => ({
-    index: next.currentIds.indexOf(task.id) + 1,
+    index: state.currentIds.indexOf(task.id) + 1,
     ...task,
   }));
-  return { state: next, mode: reorder ? 'reorder' : 'append', reorderFrom, added: numberedAdded, invalidated };
+  return { mode: reorder ? 'reorder' : 'append', reorderFrom, added: numberedAdded, invalidated };
 }
 
-export function startLedger(state, index) {
+export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time: 0 }) {
+  const next = clone(state);
+  return { state: next, ...applyWrite(next, rawTasks, reorderFrom, meta) };
+}
+
+function applyStart(state, index) {
   const { id, task } = taskAt(state, index, 'todo_write');
   if (task.status !== 'pending') throw ledgerError('startNotPending', { index, status: task.status });
   for (let previous = 0; previous < index - 1; previous += 1) {
@@ -223,19 +236,27 @@ export function startLedger(state, index) {
       throw ledgerError('startBlocked', { previous: previous + 1, index });
     }
   }
-  const next = clone(state);
-  next.nodes.find((node) => node.id === id).status = 'in_progress';
-  return { state: next, taskId: id };
+  task.status = 'in_progress';
+  return id;
 }
 
-export function finishLedger(state, index) {
+export function startLedger(state, index) {
+  const next = clone(state);
+  return { state: next, taskId: applyStart(next, index) };
+}
+
+function applyFinish(state, index) {
   const { id, task } = taskAt(state, index, 'todo_write');
   if (task.status !== 'in_progress') {
     throw ledgerError('finishNotActive', { index, status: task.status });
   }
+  task.status = 'completed';
+  return id;
+}
+
+export function finishLedger(state, index) {
   const next = clone(state);
-  next.nodes.find((node) => node.id === id).status = 'completed';
-  return { state: next, taskId: id };
+  return { state: next, taskId: applyFinish(next, index) };
 }
 
 function hasInProgress(state) {
@@ -248,27 +269,27 @@ function firstPendingIndex(state) {
 
 export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
   const { todos, reorderFrom, finish } = args;
-  let next = state;
+  // One working copy for every step. Helpers validate before mutating, so a
+  // failure anywhere leaves both the published state and this copy untouched.
+  const next = clone(state);
   let finished;
   let write;
   let started;
   const operations = [];
 
   if (finish !== undefined) {
-    const result = finishLedger(next, finish);
-    next = result.state;
-    finished = { index: finish, taskId: result.taskId, status: 'completed' };
+    const taskId = applyFinish(next, finish);
+    finished = { index: finish, taskId, status: 'completed' };
     operations.push({
-      state: next,
-      ledger: { operation: 'finish', taskId: result.taskId },
+      todos: legacyTodos(next),
+      ledger: { operation: 'finish', taskId },
     });
   }
 
   if (todos !== undefined || reorderFrom !== undefined) {
-    write = writeLedger(next, todos ?? [], reorderFrom, meta);
-    next = write.state;
+    write = applyWrite(next, todos ?? [], reorderFrom, meta);
     operations.push({
-      state: next,
+      todos: legacyTodos(next),
       ledger: {
         operation: 'write',
         mode: write.mode,
@@ -282,12 +303,11 @@ export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
   if (!hasInProgress(next)) {
     const index = firstPendingIndex(next);
     if (index > 0) {
-      const result = startLedger(next, index);
-      next = result.state;
-      started = { index, taskId: result.taskId, status: 'in_progress' };
+      const taskId = applyStart(next, index);
+      started = { index, taskId, status: 'in_progress' };
       operations.push({
-        state: next,
-        ledger: { operation: 'start', taskId: result.taskId },
+        todos: legacyTodos(next),
+        ledger: { operation: 'start', taskId },
       });
     }
   }

@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createLedgerTools } from '../src/tools.js';
-import { emptyLedger, foldLedgerEvent } from '../src/ledger.js';
+import {
+  LEDGER_VERSION,
+  emptyLedger,
+  finishLedger,
+  foldLedgerEvent,
+  legacyTodos,
+  startLedger,
+  writeLedger,
+} from '../src/ledger.js';
 import { LEDGER_MESSAGES, fillPrompt } from '../src/prompts.js';
 
 function ledgerMessage(key, values) {
@@ -66,6 +74,49 @@ function harness({
     reviewCalls() { return reviewCalls; },
     exec: { agent, callId: 'call-1', signal: execSignal },
   };
+}
+
+// Minimal replica of the pre-refactor updateLedger + appendOperation path.
+// The public entry points keep their clone-per-call semantics, so this yields
+// the exact event payloads HEAD emitted for the same argument sequence.
+function legacyCompositeEvents(state, args, callId) {
+  let next = state;
+  const events = [];
+  if (args.finish !== undefined) {
+    const finished = finishLedger(next, args.finish);
+    next = finished.state;
+    events.push({
+      todos: legacyTodos(next),
+      ledger: { version: LEDGER_VERSION, operation: 'finish', taskId: finished.taskId },
+    });
+  }
+  if (args.todos !== undefined || args.reorderFrom !== undefined) {
+    const write = writeLedger(next, args.todos ?? [], args.reorderFrom);
+    next = write.state;
+    events.push({
+      todos: legacyTodos(next),
+      ledger: {
+        version: LEDGER_VERSION,
+        operation: 'write',
+        mode: write.mode,
+        ...(write.reorderFrom === undefined ? {} : { reorderFrom: write.reorderFrom }),
+        added: write.added.map(({ id, content }) => ({ id, content })),
+        invalidatedIds: write.invalidated.map((task) => task.id),
+      },
+    });
+  }
+  if (!next.currentIds.some((id) => next.nodes.find((node) => node.id === id)?.status === 'in_progress')) {
+    const index = next.currentIds.findIndex((id) => next.nodes.find((node) => node.id === id)?.status === 'pending') + 1;
+    if (index > 0) {
+      const started = startLedger(next, index);
+      next = started.state;
+      events.push({
+        todos: legacyTodos(next),
+        ledger: { version: LEDGER_VERSION, operation: 'start', taskId: started.taskId, callId: String(callId) },
+      });
+    }
+  }
+  return { state: next, events };
 }
 
 test('todo_write appends a replayable delta and volatile review config is read per call', async () => {
@@ -244,6 +295,38 @@ test('reorder auto-starts the first pending task', async () => {
     { content: 'Replacement', status: 'in_progress' },
     { content: 'Later', status: 'pending' },
   ]);
+});
+
+test('composite event payloads match the head sequence byte for byte', async () => {
+  const scenarios = [
+    [{ todos: ['First', 'Second'] }],
+    [{ todos: ['First', 'Second'] }, { finish: 1 }],
+    [{ todos: ['First', 'Second'] }, { finish: 1, todos: ['Third'] }],
+    [{ todos: ['First', 'Second', 'Third'] }, { finish: 1 }, { reorderFrom: 2, todos: ['Replacement', 'Later'] }],
+    [{ todos: ['One', 'Two', 'Three', 'Four'] }, { finish: 1, reorderFrom: 3, todos: ['Replacement', 'Later'] }],
+  ];
+
+  for (const scenario of scenarios) {
+    const env = harness();
+    let expectedState = emptyLedger();
+    const expectedEvents = [];
+    for (const args of scenario) {
+      const reference = legacyCompositeEvents(expectedState, args, env.exec.callId);
+      expectedState = reference.state;
+      expectedEvents.push(...reference.events);
+      await env.tools.todo_write.execute(args, env.exec);
+    }
+
+    const actualEvents = env.appended.map((event) => event.data);
+    assert.deepEqual(actualEvents, expectedEvents);
+    assert.equal(
+      JSON.stringify(actualEvents),
+      JSON.stringify(expectedEvents),
+      'todos and ledger payloads must be byte-identical to the head sequence',
+    );
+    assert.deepEqual(legacyTodos(env.state()), legacyTodos(expectedState));
+    assert.deepEqual(env.state().currentIds, expectedState.currentIds);
+  }
 });
 
 test('a failed composite call appends no partial operations', async () => {

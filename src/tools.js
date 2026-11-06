@@ -35,9 +35,9 @@ function owningState(ctx, exec, toolName) {
   return state;
 }
 
-function appendOperation(exec, state, ledger) {
+function appendOperation(exec, todos, ledger) {
   exec.agent.session.append('todo/write', {
-    todos: legacyTodos(state),
+    todos,
     ledger: { version: LEDGER_VERSION, ...ledger },
   });
 }
@@ -109,7 +109,7 @@ export function createLedgerTools(ctx, config) {
         }
         if (exec.signal?.aborted) return {};
         for (const operation of result.operations) {
-          appendOperation(exec, operation.state, {
+          appendOperation(exec, operation.todos, {
             ...operation.ledger,
             ...(operation.ledger.operation === 'start' ? { callId: String(exec.callId) } : {}),
           });
@@ -178,7 +178,7 @@ export function createLedgerTools(ctx, config) {
           args.inIssue,
           args.issue,
         );
-        appendOperation(exec, result.state, {
+        appendOperation(exec, legacyTodos(result.state), {
           operation: 'report',
           taskId: result.taskId,
           callId: String(exec.callId),
