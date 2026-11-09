@@ -339,7 +339,7 @@ test('reorder auto-starts the first pending task', async () => {
     { oldIndex: 3, content: 'Three', status: 'pending' },
   ]);
   assert.deepEqual(result.started, { content: 'Replacement' });
-  assert.deepEqual(result.plan, [
+  assert.deepEqual(result.tasks, [
     { index: 1, content: 'One', status: 'completed' },
     { index: 2, content: 'Replacement', status: 'in_progress' },
     { index: 3, content: 'Later', status: 'pending' },
@@ -350,6 +350,22 @@ test('reorder auto-starts the first pending task', async () => {
     { content: 'One', status: 'completed' },
     { content: 'Replacement', status: 'in_progress' },
     { content: 'Later', status: 'pending' },
+  ]);
+});
+
+test('reorder returns the default read view instead of the full plan', async () => {
+  const env = harness();
+  await env.tools.todo_write.execute({ todos: ['One', 'Two', 'Three', 'Four'] }, env.exec);
+  await env.tools.todo_write.execute({ finish: 1 }, env.exec);
+  await env.tools.todo_write.execute({ finish: 2 }, env.exec);
+  const result = await env.tools.todo_write.execute({
+    reorderFrom: 3,
+    todos: ['Replacement'],
+  }, env.exec);
+  assert.equal(Object.hasOwn(result, 'plan'), false);
+  assert.deepEqual(result.tasks, [
+    { index: 2, content: 'Two', status: 'completed' },
+    { index: 3, content: 'Replacement', status: 'in_progress' },
   ]);
 });
 

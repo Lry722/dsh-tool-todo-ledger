@@ -7,7 +7,6 @@ import {
   LEDGER_VERSION,
   currentView,
   legacyTodos,
-  numberedPlan,
   reportLedger,
   updateLedger,
 } from './ledger.js';
@@ -147,7 +146,7 @@ export function createLedgerTools(ctx, config) {
             added: result.write.added.map(withoutInternalId),
             ...(result.write.mode === 'reorder' ? {
               invalidated: result.write.invalidated.map(withoutInternalId),
-              plan: numberedPlan(result.state),
+              tasks: currentView(result.state).tasks,
             } : {}),
           } : {}),
           ...(result.started ? { started: transitionResult(result.started) } : {}),
