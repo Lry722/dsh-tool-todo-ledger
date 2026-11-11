@@ -142,8 +142,8 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__turn-select option{color:var(--dsw-alias-label-primary)}
       .todo-ledger-sidebar__turn-select-chevron{position:absolute;top:7px;right:4px;color:var(--dsw-alias-label-tertiary);pointer-events:none}
       .todo-ledger-sidebar__history{min-width:0}
-      .todo-ledger-sidebar__turn-rail{--turn-preview-height:100px;position:absolute;z-index:2;top:50%;right:14px;width:28px;max-height:min(max(0px,calc(100% - 64px)),420px);transform:translateY(-50%);cursor:pointer}
-      .todo-ledger-sidebar__turn-rail-scroller{position:relative;max-height:inherit;padding:6px 0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+      .todo-ledger-sidebar__turn-rail{--turn-preview-height:100px;position:absolute;z-index:2;top:50%;right:14px;width:28px;height:min(max(0px,calc(100% - 64px)),420px);display:flex;flex-direction:column;justify-content:center;contain:layout;transform:translateY(-50%)}
+      .todo-ledger-sidebar__turn-rail-scroller{max-height:100%;padding:6px 0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;cursor:pointer}
       .todo-ledger-sidebar__turn-rail-scroller::-webkit-scrollbar{display:none}
       .todo-ledger-sidebar__turn-rail-mark{position:relative;display:block;width:28px;height:10px;padding:0;border:0;border-radius:8px;background:transparent;cursor:pointer}
       .todo-ledger-sidebar__turn-rail-mark:before{content:"";position:absolute;top:50%;right:0;width:20px;height:2px;border-radius:2px;background:var(--dsw-alias-border-l4);transform:translateY(-50%) scaleX(.6);transform-origin:100%;transition:transform .14s,background-color .14s}
