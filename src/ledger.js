@@ -119,6 +119,19 @@ export function taskAt(state, index, toolName) {
   return { id, task };
 }
 
+// The in-progress task with its current 1-based index, if the plan has one.
+function inProgressEntry(state) {
+  for (let index = 0; index < state.currentIds.length; index += 1) {
+    const task = nodeById(state, state.currentIds[index]);
+    if (task?.status === 'in_progress') return { index: index + 1, task };
+  }
+  return undefined;
+}
+
+function taskReference(entry) {
+  return `${entry.index}「${entry.task.content}」`;
+}
+
 export function legacyTodos(state) {
   return state.currentIds.map((id) => {
     const task = nodeById(state, id);
@@ -337,12 +350,16 @@ export function reportLedger(state, index, inIssue, rawIssue) {
     throw ledgerError('issueOmitted');
   }
   if (task.status !== 'in_progress') {
-    throw ledgerError('reportInactiveTask', { index, status: task.status });
+    const active = inProgressEntry(state);
+    throw active
+      ? ledgerError('reportInactiveTask', { index, status: task.status, active: taskReference(active) })
+      : ledgerError('reportNoActiveTask', { index, status: task.status });
   }
   if (state.lastReportTaskId !== null && state.lastReportTaskId !== id) {
     const previous = state.nodes.find((node) => node.id === state.lastReportTaskId);
     if (previous && previous.status !== 'completed') {
-      throw ledgerError('reportSwitchBlocked');
+      const active = { index: state.currentIds.indexOf(previous.id) + 1, task: previous };
+      throw ledgerError('reportSwitchBlocked', { active: taskReference(active) });
     }
   }
   const report = { index, inIssue, ...(issue === undefined ? {} : { issue }) };

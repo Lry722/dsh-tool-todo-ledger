@@ -257,6 +257,31 @@ test('reports validate issues and expose only the active issue', () => {
   assert.throws(() => reportLedger(topLevel, 1, true), ledgerMessage('issueRequired'));
 });
 
+test('a blocked report names the in-progress task', () => {
+  const started = startLedger(planned(), 1).state;
+  assert.throws(
+    () => reportLedger(started, 2, false),
+    ledgerMessage('reportInactiveTask', {
+      index: 2,
+      status: 'pending',
+      active: '1「Confirm requirements」',
+    }),
+  );
+  assert.throws(
+    () => reportLedger(planned(), 1, false),
+    ledgerMessage('reportNoActiveTask', { index: 1, status: 'pending' }),
+  );
+
+  // A legacy snapshot can hold two in-progress tasks; switching the report
+  // target names the one left unfinished instead of a generic phrase.
+  const conflicting = reportLedger(started, 1, false).state;
+  conflicting.nodes[1].status = 'in_progress';
+  assert.throws(
+    () => reportLedger(conflicting, 2, false),
+    ledgerMessage('reportSwitchBlocked', { active: '1「Confirm requirements」' }),
+  );
+});
+
 test('reorder voids unfinished suffix, preserves completion and renumbers replacements', () => {
   let state = planned();
   state = startLedger(state, 1).state;

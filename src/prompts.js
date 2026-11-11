@@ -5,8 +5,9 @@ function loadMarkdown(name) {
 }
 
 // Prompt JSON is read at module evaluation rather than imported as a module, so
-// the host HMR does not observe edits to prompts/*.json. Touch this module after
-// editing one (or restart) to evict this module and its importers.
+// the host HMR does not observe edits to prompts/*.json. Edit this module after
+// editing one (or restart) to evict this module and its importers; a trivial
+// comment change is enough.
 function loadJson(name) {
   return JSON.parse(readFileSync(new URL(`../prompts/${name}.json`, import.meta.url), 'utf8'));
 }
