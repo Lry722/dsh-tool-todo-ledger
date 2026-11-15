@@ -717,12 +717,55 @@ test('a late report is admitted and leaves no steer behind', () => {
   assert.equal(h.warnings.length, 0);
 });
 
-test('late reports never consume the exemption budget', () => {
-  const h = guardHarness();
+test('recorded late reports never consume the exemption budget', () => {
+  const h = guardHarness(reportedLedger('earlier-report'));
   for (let step = 0; step < 10; step += 1) {
     h.setStep(message(call('bash'), call('todo_report', `late-${step}`)));
     assert.equal(h.run(), undefined);
+    // The late report runs after the action and lands before the next step.
+    h.setState(reportedLedger(`late-${step}`));
   }
+  assert.equal(h.warnings.length, 0);
+});
+
+test('a late report that never records stops granting provisional passage', () => {
+  const h = guardHarness(reportedLedger('earlier-report'));
+  // The first late report is admitted before it can be verified; every following
+  // step admits only the hope of a new report, so it must spend the budget.
+  for (let step = 0; step < 7; step += 1) {
+    h.setStep(message(call('bash'), call('todo_report', `late-${step}`)));
+    assert.equal(h.run(), undefined);
+  }
+  assert.equal(h.warnings.length, 0);
+
+  h.setStep(message(call('bash'), call('todo_report', 'late-final')));
+  const denial = h.run();
+  assert.match(denial, /所有工具调用将被拦截/);
+  // The block names the active task so a wrong-index report can be corrected.
+  assert.match(denial, /当前进行中的任务是 1「Task」/);
+  assert.equal(h.warnings.length, 0);
+});
+
+test('a recorded report restores the late-report grant', () => {
+  const h = guardHarness(reportedLedger('earlier-report'));
+  for (let step = 0; step < 5; step += 1) {
+    h.setStep(message(call('bash'), call('todo_report', `late-${step}`)));
+    assert.equal(h.run(), undefined);
+  }
+  assert.equal(h.warnings.length, 0);
+
+  // A report that lands between steps resets the budget and re-arms the grant.
+  h.setState(reportedLedger('recovered-report'));
+  h.setStep(message(call('bash'), call('todo_report', 'recovered-late')));
+  assert.equal(h.run(), undefined);
+
+  // A fresh broken streak may again spend the full grant before blocking.
+  for (let step = 0; step < 6; step += 1) {
+    h.setStep(message(call('bash'), call('todo_report', `late-again-${step}`)));
+    assert.equal(h.run(), undefined);
+  }
+  h.setStep(message(call('bash'), call('todo_report', 'late-again-final')));
+  assert.match(h.run(), /所有工具调用将被拦截/);
   assert.equal(h.warnings.length, 0);
 });
 

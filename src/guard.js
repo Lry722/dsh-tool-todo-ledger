@@ -19,6 +19,14 @@ export function inProgressTask(state) {
   return undefined;
 }
 
+// The active task numbered the way `todo_report` addresses it, so a block can
+// name the right index instead of only complaining about the missing reports.
+function activeTaskReference(state) {
+  const task = inProgressTask(state);
+  if (!task) return undefined;
+  return `${state.currentIds.indexOf(task.id) + 1}「${task.content}」`;
+}
+
 function issueName(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -82,6 +90,13 @@ function latestReport(state) {
     }
   }
   return latest;
+}
+
+// Identity of the newest recorded report. Every counter that tracks whether a
+// report landed compares this token, so a failed report leaves it unchanged.
+function reportToken(state) {
+  const latest = latestReport(state);
+  return latest?.callId ?? latest?.seq;
 }
 
 /**
@@ -271,6 +286,9 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   let observedMessage;
   let messageAdmission;
   let lastReportToken;
+  // The last step admitted on the strength of a report that had not run yet.
+  // The following step is the only place that can tell whether it was recorded.
+  let lateAdmission;
   let repeatedIssueSteered;
   // Tasks whose first unreported finish was refused for confirmation. The next
   // finish of the same task is the model declaring it a no-action output task.
@@ -282,8 +300,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   let ptcPendingReport = false;
 
   function decide(message, state, coverage, guardedAgent) {
-    const latest = latestReport(state);
-    const latestToken = latest?.callId ?? latest?.seq;
+    const latestToken = reportToken(state);
     if (latestToken !== undefined && latestToken !== lastReportToken) {
       lastReportToken = latestToken;
       budget.reset();
@@ -302,6 +319,13 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       }
     }
     if (!messageAdmission.allowed) {
+      // A report that exists but never records is a different failure than a
+      // missing one: name the target the model should have reported instead of
+      // repeating the "forgot to report" wording, which invites another retry.
+      if (coverage.coverage === 'failed') {
+        const active = activeTaskReference(state);
+        if (active !== undefined) return fillPrompt(GUARD_MESSAGES.unrecordedReports, { active });
+      }
       return GUARD_MESSAGES.budgetExhausted;
     }
     return undefined;
@@ -406,10 +430,23 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       }
       // Every action re-reads the current state: an earlier todo_write in the
       // same message may finish the task or switch the active one.
-      const coverage = stepCoverage(state, message, execution);
+      let coverage = stepCoverage(state, message, execution);
       if (coverage.outcome === 'exempt') {
         failureReported = false;
         return undefined;
+      }
+      // A late report is admitted before it runs, so the next step is the first
+      // place that can verify it. When no report landed since that admission,
+      // the promise was broken: this action is uncovered instead of receiving
+      // another free pass. Without this check a step that pairs a failing late
+      // report with an action would never spend the budget, so the guard could
+      // not block the loop no matter how many times the report failed.
+      if (coverage.outcome === 'provisional' && !isPtcDispatch(execution)) {
+        const token = reportToken(state);
+        if (lateAdmission !== undefined && lateAdmission.message !== message && lateAdmission.token === token) {
+          coverage = { outcome: 'uncovered', coverage: 'failed' };
+        }
+        lateAdmission = { message, token };
       }
       const decision = decide(message, state, coverage, execution.agent);
       failureReported = false;

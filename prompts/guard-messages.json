@@ -4,6 +4,7 @@
   "unreportedFinish": "任务 {{index}} 在 finish 前没有任何 todo_report。如果这是仅输出结论、不需要工具动作的收尾任务，请再次调用同一个 finish 确认；如果该 task 的前提已被证伪、目标不再需要或计划需要调整，请改用 todo_write 的 reorderFrom: {{index}} 重排作废，不要 finish。",
   "noActiveTask": "当前没有进行中的任务，请先调用 todo_write。",
   "budgetExhausted": "你一直忘了调用 todo_report！所有工具调用将被拦截。",
+  "unrecordedReports": "todo_report 持续没有成功写入账本，所有工具调用将被拦截。当前进行中的任务是 {{active}}；请先调用 todo_read 核对序号，再上报该任务。",
   "ptcPendingReport": "上一次 run_code 程序执行了动作但没有成功调用 todo_report。请先在本程序中调用 todo_report，再执行其他动作。",
   "coverageWarning": {
     "one": "你忘了调用 todo_report！这是最后一次警告，之后将拦截所有工具调用",

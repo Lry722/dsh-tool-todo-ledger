@@ -54,6 +54,11 @@ test('runtime messages load and interpolate prompt placeholders', () => {
   assert.match(unreportedFinish, /再次调用同一个 finish 确认/);
   assert.match(unreportedFinish, /reorderFrom: 2/);
   assert.doesNotMatch(unreportedFinish, /\{\{/);
+  assert.match(GUARD_MESSAGES.unrecordedReports, /\{\{active\}\}/);
+  const unrecordedReports = fillPrompt(GUARD_MESSAGES.unrecordedReports, { active: '2「合入 master」' });
+  assert.match(unrecordedReports, /所有工具调用将被拦截/);
+  assert.match(unrecordedReports, /2「合入 master」/);
+  assert.doesNotMatch(unrecordedReports, /\{\{/);
   // Assert interpolation behavior instead of the current language so that
   // localizing ledger messages never breaks this test.
   assert.match(LEDGER_MESSAGES.taskIndexRange, /\{\{tool\}\}/);
