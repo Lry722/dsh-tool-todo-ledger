@@ -83,11 +83,11 @@ function reportRecorded(task, callId) {
 function latestReport(state) {
   let latest;
   for (const node of state?.nodes ?? []) {
-    for (const report of node.reports ?? []) {
-      const order = typeof report.seq === 'number' ? report.seq : report.time ?? 0;
-      const latestOrder = typeof latest?.seq === 'number' ? latest.seq : latest?.time ?? 0;
-      if (latest === undefined || order > latestOrder) latest = report;
-    }
+    // Reports are pruned at turn close, so the last entry of each node is also
+    // that node's newest one.
+    const report = node.reports?.at(-1);
+    if (report === undefined) continue;
+    if (latest === undefined || (report.seq ?? 0) > (latest.seq ?? 0)) latest = report;
   }
   return latest;
 }
@@ -283,26 +283,30 @@ export function installStepTracker(ctx) {
  * @returns the exact guard disposer.
  */
 export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBudget()) {
-  let observedMessage;
-  let messageAdmission;
-  let lastReportToken;
-  // The last step admitted on the strength of a report that had not run yet.
-  // The following step is the only place that can tell whether it was recorded.
-  let lateAdmission;
-  let repeatedIssueSteered;
-  // Tasks whose first unreported finish was refused for confirmation. The next
-  // finish of the same task is the model declaring it a no-action output task.
-  const pendingFinishConfirmations = new Set();
-  let failureReported = false;
-  // PTC programs have no message-level call list, so coverage is judged once
-  // per program after its nested dispatches settle.
-  const ptcPrograms = new Map();
-  let ptcPendingReport = false;
+  // The guard's memory, grouped by the question each field answers. Keeping it
+  // in one record makes the reset points explicit and stops another subtle
+  // interaction from becoming another free-standing closure variable.
+  // - step: the assistant message that already spent an admission, and whether
+  //   that admission allowed its action;
+  // - report: the newest recorded report already seen (budget reset), and the
+  //   last provisional admission whose late report is not verified yet;
+  // - finish: tasks whose first unreported finish was refused for confirmation;
+  // - issue: the repeated-issue streak that was already steered;
+  // - ptc: per-program dispatch records and the pending-report barrier;
+  // - failure: whether an internal-error notice was already injected.
+  const memory = {
+    step: { message: undefined, admission: undefined },
+    report: { recorded: undefined, pending: undefined },
+    finish: new Set(),
+    issue: { steered: undefined },
+    ptc: { programs: new Map(), pending: false },
+    failure: { reported: false },
+  };
 
   function decide(message, state, coverage, guardedAgent) {
     const latestToken = reportToken(state);
-    if (latestToken !== undefined && latestToken !== lastReportToken) {
-      lastReportToken = latestToken;
+    if (latestToken !== undefined && latestToken !== memory.report.recorded) {
+      memory.report.recorded = latestToken;
       budget.reset();
     }
     // Hard blocks and recorded/pending reports never depend on the budget or
@@ -311,14 +315,14 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
     if (coverage.outcome === 'covered' || coverage.outcome === 'provisional') return undefined;
     // An assistant message may spend at most one admission. Later uncovered
     // actions reuse it, including a denial, without steering again.
-    if (observedMessage !== message) {
-      observedMessage = message;
-      messageAdmission = budget.admit();
-      if (coverage.coverage === 'missing' && messageAdmission.warning !== undefined) {
-        steerAgent(guardedAgent, messageAdmission.warning);
+    if (memory.step.message !== message) {
+      memory.step.message = message;
+      memory.step.admission = budget.admit();
+      if (coverage.coverage === 'missing' && memory.step.admission.warning !== undefined) {
+        steerAgent(guardedAgent, memory.step.admission.warning);
       }
     }
-    if (!messageAdmission.allowed) {
+    if (!memory.step.admission.allowed) {
       // A report that exists but never records is a different failure than a
       // missing one: name the target the model should have reported instead of
       // repeating the "forgot to report" wording, which invites another retry.
@@ -334,19 +338,19 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   function steerRepeatedIssue(state, execution, guardedAgent) {
     const repeated = repeatedIssue(state, execution);
     if (repeated === undefined) {
-      repeatedIssueSteered = undefined;
+      memory.issue.steered = undefined;
       return;
     }
     // One steer per issue streak is enough; a compliant report (one that omits
     // the name) clears the marker so a later relapse is corrected again.
     if (
-      repeatedIssueSteered?.taskId === repeated.taskId
-      && repeatedIssueSteered.issue === repeated.issue
+      memory.issue.steered?.taskId === repeated.taskId
+      && memory.issue.steered.issue === repeated.issue
     ) return;
     const text = fillPrompt(GUARD_MESSAGES.repeatedIssue, { issue: repeated.issue });
     // Record the correction only after the steer is delivered; a transient
     // failure must not suppress the reminder for the rest of the issue streak.
-    if (steerAgent(execution.agent ?? guardedAgent, text)) repeatedIssueSteered = repeated;
+    if (steerAgent(execution.agent ?? guardedAgent, text)) memory.issue.steered = repeated;
   }
 
   /**
@@ -358,40 +362,40 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
     if (session !== agent.session) return;
     try {
       if (event.type === 'session/disposed') {
-        ptcPrograms.clear();
+        memory.ptc.programs.clear();
         return;
       }
       if (event.type === 'tool/call' && event.data?.name === RUN_CODE_NAME) {
         // A new program supersedes a record whose result never arrived.
-        ptcPrograms.clear();
+        memory.ptc.programs.clear();
         return;
       }
       if (event.type === 'tool/ptc-dispatch') {
         const parentCallId = event.data?.parentCallId;
         if (typeof parentCallId !== 'string') return;
-        const record = ptcPrograms.get(parentCallId) ?? { hadAction: false, reported: false };
+        const record = memory.ptc.programs.get(parentCallId) ?? { hadAction: false, reported: false };
         if (event.data?.name === 'todo_report') {
           if (event.data?.isError !== true) {
             record.reported = true;
-            ptcPendingReport = false;
+            memory.ptc.pending = false;
             budget.reset();
           }
         } else if (!EXEMPT_TOOLS.has(event.data?.name)) {
           record.hadAction = true;
         }
-        ptcPrograms.set(parentCallId, record);
+        memory.ptc.programs.set(parentCallId, record);
         return;
       }
       if (event.type !== 'tool/result') return;
       const callId = event.data?.message?.callId;
       if (typeof callId !== 'string') return;
-      const record = ptcPrograms.get(callId);
+      const record = memory.ptc.programs.get(callId);
       if (!record) return;
-      ptcPrograms.delete(callId);
+      memory.ptc.programs.delete(callId);
       if (!record.hadAction || record.reported) return;
       const admission = budget.admit();
       if (!admission.allowed) {
-        ptcPendingReport = true;
+        memory.ptc.pending = true;
         steerAgent(agent, GUARD_MESSAGES.ptcPendingReport);
       } else if (admission.warning !== undefined) {
         steerAgent(agent, admission.warning);
@@ -405,7 +409,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
   const disposeGuard = agent.ctx.tools.guard((execution) => {
     if (!execution.agent) return undefined;
     try {
-      if (isPtcDispatch(execution) && !EXEMPT_TOOLS.has(execution.name) && ptcPendingReport) {
+      if (isPtcDispatch(execution) && !EXEMPT_TOOLS.has(execution.name) && memory.ptc.pending) {
         return GUARD_MESSAGES.ptcPendingReport;
       }
       const state = ctx.sessionProjections.stateOf(execution.agent.session, 'todoLedger');
@@ -422,9 +426,15 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       // the model can either reorder a disproved task or confirm a task that
       // only produces the final answer without tools.
       if (execution.name === 'todo_write') {
+        // A reorder or a finished task can retire a confirmation the model will
+        // never retry, so keep the set proportional to the current plan.
+        for (const id of memory.finish) {
+          const task = state?.nodes?.find((node) => node.id === id);
+          if (task?.status !== 'in_progress') memory.finish.delete(id);
+        }
         const unreported = unreportedFinish(state, execution);
-        if (unreported && !pendingFinishConfirmations.delete(unreported.taskId)) {
-          pendingFinishConfirmations.add(unreported.taskId);
+        if (unreported && !memory.finish.delete(unreported.taskId)) {
+          memory.finish.add(unreported.taskId);
           return fillPrompt(GUARD_MESSAGES.unreportedFinish, { index: unreported.index });
         }
       }
@@ -432,7 +442,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       // same message may finish the task or switch the active one.
       let coverage = stepCoverage(state, message, execution);
       if (coverage.outcome === 'exempt') {
-        failureReported = false;
+        memory.failure.reported = false;
         return undefined;
       }
       // A late report is admitted before it runs, so the next step is the first
@@ -443,17 +453,18 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       // not block the loop no matter how many times the report failed.
       if (coverage.outcome === 'provisional' && !isPtcDispatch(execution)) {
         const token = reportToken(state);
-        if (lateAdmission !== undefined && lateAdmission.message !== message && lateAdmission.token === token) {
+        const pending = memory.report.pending;
+        if (pending !== undefined && pending.message !== message && pending.token === token) {
           coverage = { outcome: 'uncovered', coverage: 'failed' };
         }
-        lateAdmission = { message, token };
+        memory.report.pending = { message, token };
       }
       const decision = decide(message, state, coverage, execution.agent);
-      failureReported = false;
+      memory.failure.reported = false;
       return decision;
     } catch (error) {
-      if (!failureReported) {
-        failureReported = true;
+      if (!memory.failure.reported) {
+        memory.failure.reported = true;
         try {
           reportGuardFailure(ctx, agent, error);
         } catch (_error) {

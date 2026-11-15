@@ -162,16 +162,18 @@ test('todo_read full exports a complete private history file', async () => {
     assert.match(basename(directory), /^todo-ledger-/);
     assert.match(basename(result.path), /^todo-ledger-session-1-\d+\.json$/);
     const document = JSON.parse(await readFile(result.path, 'utf8'));
-    assert.equal(document.format, 'dsh-todo-ledger-history/v1');
+    assert.equal(document.format, 'dsh-todo-ledger-history/v2');
     assert.equal(document.sessionId, 'session-1');
     assert.equal(typeof document.exportedAt, 'string');
     assert.equal(Number.isNaN(Date.parse(document.exportedAt)), false);
     assert.deepEqual(document.state.currentIds, env.state().currentIds);
     assert.equal(result.eventCount, env.appended.length);
     assert.ok(env.appended.every((event) => event.type === 'todo/write'));
+    // The export keeps the semantic operations only; the repeated `todos`
+    // snapshot stays in the session log for the official todo projection.
     assert.deepEqual(
       document.events,
-      env.appended.map(({ seq, time, data }) => ({ seq, time, data })),
+      env.appended.map(({ seq, time, data }) => ({ seq, time, ledger: data.ledger })),
     );
     if (process.platform !== 'win32') {
       assert.equal((await stat(result.path)).mode & 0o777, 0o600);

@@ -167,10 +167,11 @@ guard 读取状态或分类调用时出错，会向会话注入一条 notice 报
 插件复用已知的 `todo/write` Session 事件：
 
 - `todos`：保留每个操作后的当前有效规划兼容快照，旧版读取方仍可读取。
-- `ledger`：保存增量操作，包括追加、重排、启动、完成和上报。每个任务节点都带内部稳定 ID，用于历史回放。重排保留旧节点及其中记录的上报内容。
+- `ledger`：保存增量操作，包括追加、重排、启动、完成和上报。每个任务节点都带内部稳定 ID，用于历史回放。重排保留旧节点作为作废历史，其上报已折叠进对应 turn 的 issue 摘要；任务编号由节点 ID 推导，不单独持久化。
 - 一次组合 `todo_write` 调用按实际执行顺序追加多条 `todo/write` 事件，各操作共享工具调用上下文。启动操作会记录其所属 `todo_write` 调用的 call ID，供 dock 导航使用。
 - `todoLedger`：Host projection，从事件日志重建状态，并以该日志为唯一事实源。除任务节点外，还保存 `currentTurn`、逐 turn 工作集及轮末状态快照。projection `stateVersion` 升级会触发旧缓存重建，不改变 `todo/write` 事件格式或 `LEDGER_VERSION`。旧版 `localTask` / `inLocalTask` 上报在回放时转换为 `issue` / `inIssue`。
-- `todoLedgerHistory`：只保留原始 `todo/write` 事件的 Host projection，供 `todo_read({full: true})` 导出。导出不再调用已废弃的 `session.snapshotEvents()` 同步读取，随 projection 回放一起覆盖恢复的会话。
+- 上报只在当前 turn 内以原始记录保留：turn 关闭时把本 turn 的上报折叠为 `turns[].issues` 中的按任务 issue 摘要（名称、首末 seq、导航信息），每个任务只保留最后一条上报用于 issue 延续和当前 issue 判定。这样账本状态不会随 step 数量线性增长，历史视图也不需要重扫原始上报；`active` 在生成视图时按当前规划计算，不冻结在 turn 里。
+- `todoLedgerHistory`：只保留 `todo/write` 语义操作的 Host projection，供 `todo_read({full: true})` 导出（`dsh-todo-ledger-history/v2`）。版本化事件只记录 `{seq, time, ledger}`；每个事件携带的完整 `todos` 规划快照仍写在会话日志中供其他读取方使用，但不再复制进导出文件。旧版无 `ledger` 的快照保留完整 `data`。导出不再调用已废弃的 `session.snapshotEvents()` 同步读取，随 projection 回放一起覆盖恢复的会话。
 - 前置审查读取当前生效的 AGENTS.md 时使用 `session.deriveMessages()`，与模型可见 surface 保持一致，也不再调用 `session.eventAt()`。
 - 安装前的官方全量 `todo/write` 事件可作为旧版快照回放。
 

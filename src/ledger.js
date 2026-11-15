@@ -13,9 +13,8 @@ export function emptyLedger() {
     currentIds: [],
     lastReportTaskId: null,
     lastToolCallId: null,
-    nextTaskNumber: 1,
     currentTurn: 0,
-    turns: [{ turn: 0, startSeq: 0, startTime: 0, taskIds: [] }],
+    turns: [{ turn: 0, startSeq: 0, taskIds: [] }],
   };
 }
 
@@ -52,14 +51,24 @@ function rememberInTurn(state, taskId) {
   if (turn && !turn.endStatuses && !turn.taskIds.includes(taskId)) turn.taskIds.push(taskId);
 }
 
-function closeTurn(state, turn, seq, time) {
+function closeTurn(state, turn, seq) {
   if (!turn || turn.endStatuses) return;
   turn.endSeq = seq;
-  turn.endTime = time;
   turn.endStatuses = {};
+  const issues = {};
   for (const id of turn.taskIds) {
     const task = state.nodes.find((node) => node.id === id);
-    if (task) turn.endStatuses[id] = task.status;
+    if (!task) continue;
+    turn.endStatuses[id] = task.status;
+    const summaries = issueSummaries(task.reports, { startSeq: turn.startSeq, endSeq: seq });
+    if (summaries.length > 0) issues[id] = summaries;
+  }
+  if (Object.keys(issues).length > 0) turn.issues = issues;
+  // Reports are only needed while their turn is open. Keep the last one of each
+  // task so issue continuation and the active issue still resolve in later
+  // turns; everything else lives on as the turn's issue summaries.
+  for (const node of state.nodes) {
+    if (node.reports.length > 1) node.reports = [node.reports.at(-1)];
   }
 }
 
@@ -67,13 +76,13 @@ function openNextTurn(state, event) {
   const number = event.data?.turn;
   if (!Number.isInteger(number) || number <= state.currentTurn) return state;
   const next = clone(state);
-  closeTurn(next, openTurn(next), event.seq, event.time);
+  closeTurn(next, openTurn(next), event.seq);
   const taskIds = next.currentIds.filter((id) => {
     const task = next.nodes.find((node) => node.id === id);
     return task && (task.status === 'pending' || task.status === 'in_progress');
   });
   next.currentTurn = number;
-  next.turns.push({ turn: number, startSeq: event.seq, startTime: event.time, taskIds });
+  next.turns.push({ turn: number, startSeq: event.seq, taskIds });
   return next;
 }
 
@@ -82,7 +91,7 @@ function closeCurrentTurn(state, event) {
   const turn = openTurn(state);
   if (!turn || turn.endStatuses) return state;
   const next = clone(state);
-  closeTurn(next, openTurn(next), event.seq, event.time);
+  closeTurn(next, openTurn(next), event.seq);
   return next;
 }
 
@@ -99,6 +108,18 @@ function contentOf(value) {
     throw ledgerError('taskRequired');
   }
   return value.trim();
+}
+
+// Task numbers only ever grow: reorders void nodes instead of freeing their ids.
+// Deriving the next number keeps the allocated sequence without persisting a
+// counter that every write would have to clone and replay.
+function nextTaskNumber(state) {
+  let next = 1;
+  for (const node of state.nodes) {
+    const match = /^t(\d+)$/.exec(node.id);
+    if (match) next = Math.max(next, Number(match[1]) + 1);
+  }
+  return next;
 }
 
 export function normalizeTasks(values) {
@@ -173,7 +194,7 @@ export function dockTodos(state) {
 
 // Validate and apply a write to a mutable working copy. Public entry points
 // clone first; the composite update reuses one working copy across steps.
-function applyWrite(state, rawTasks, reorderFrom, meta) {
+function applyWrite(state, rawTasks, reorderFrom) {
   const tasks = normalizeTasks(rawTasks);
   const reorder = reorderFrom !== undefined;
   if (!reorder && tasks.length === 0) throw ledgerError('appendTaskRequired');
@@ -203,22 +224,19 @@ function applyWrite(state, rawTasks, reorderFrom, meta) {
     for (const node of state.nodes) {
       if (!discarded.has(node.id)) continue;
       node.status = 'void';
-      node.voidedSeq = meta.seq;
-      node.voidedTime = meta.time;
     }
   }
 
   const added = [];
+  let nextId = nextTaskNumber(state);
   for (const content of tasks) {
-    const id = `t${state.nextTaskNumber}`;
-    state.nextTaskNumber += 1;
+    const id = `t${nextId}`;
+    nextId += 1;
     state.nodes.push({
       id,
       content,
       status: 'pending',
       reports: [],
-      createdSeq: meta.seq,
-      createdTime: meta.time,
     });
     state.currentIds.push(id);
     rememberInTurn(state, id);
@@ -236,9 +254,9 @@ function applyWrite(state, rawTasks, reorderFrom, meta) {
   return { mode: reorder ? 'reorder' : 'append', reorderFrom, added: numberedAdded, invalidated };
 }
 
-export function writeLedger(state, rawTasks, reorderFrom, meta = { seq: 0, time: 0 }) {
+export function writeLedger(state, rawTasks, reorderFrom) {
   const next = clone(state);
-  return { state: next, ...applyWrite(next, rawTasks, reorderFrom, meta) };
+  return { state: next, ...applyWrite(next, rawTasks, reorderFrom) };
 }
 
 function applyStart(state, index) {
@@ -281,7 +299,7 @@ function firstPendingIndex(state) {
   return state.currentIds.findIndex((id) => state.nodes.find((node) => node.id === id)?.status === 'pending') + 1;
 }
 
-export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
+export function updateLedger(state, args) {
   const { todos, reorderFrom, finish } = args;
   // One working copy for every step. Helpers validate before mutating, so a
   // failure anywhere leaves both the published state and this copy untouched.
@@ -301,7 +319,7 @@ export function updateLedger(state, args, meta = { seq: 0, time: 0 }) {
   }
 
   if (todos !== undefined || reorderFrom !== undefined) {
-    write = applyWrite(next, todos ?? [], reorderFrom, meta);
+    write = applyWrite(next, todos ?? [], reorderFrom);
     operations.push({
       todos: legacyTodos(next),
       ledger: {
@@ -416,8 +434,6 @@ function foldLegacySnapshot(state, event) {
       content: todo.content,
       status: todo.status,
       reports: [],
-      createdSeq: event.seq,
-      createdTime: event.time,
     };
     node.status = todo.status;
     if (todo.status === 'in_progress' && priorStatus !== 'in_progress' && typeof state.lastToolCallId === 'string') {
@@ -453,8 +469,6 @@ export function foldLedgerEvent(state, event) {
     for (const node of next.nodes) {
       if (!discarded.has(node.id)) continue;
       node.status = 'void';
-      node.voidedSeq = event.seq;
-      node.voidedTime = event.time;
     }
     for (const task of operation.added) {
       next.nodes.push({
@@ -462,13 +476,9 @@ export function foldLedgerEvent(state, event) {
         content: task.content,
         status: 'pending',
         reports: [],
-        createdSeq: event.seq,
-        createdTime: event.time,
       });
       next.currentIds.push(task.id);
       rememberInTurn(next, task.id);
-      const numericId = /^t(\d+)$/.exec(task.id);
-      if (numericId) next.nextTaskNumber = Math.max(next.nextTaskNumber, Number(numericId[1]) + 1);
     }
     if (operation.mode === 'reorder') next.lastReportTaskId = null;
     return next;
@@ -490,11 +500,17 @@ export function foldLedgerEvent(state, event) {
     const task = next.nodes.find((node) => node.id === operation.taskId);
     if (!task) return state;
     const callId = typeof operation.callId === 'string' ? operation.callId : state.lastToolCallId;
+    const report = normalizeReport(operation.report);
+    // Resolve a continued issue while the previous report is still at hand, so
+    // archived summaries never need to look beyond the reports they cover.
+    const previous = task.reports.at(-1);
+    if (report.inIssue && report.issue === undefined && previous?.inIssue === true && typeof previous.issue === 'string') {
+      report.issue = previous.issue;
+    }
     task.reports.push({
-      ...normalizeReport(operation.report),
+      ...report,
       ...(typeof callId === 'string' ? { callId } : {}),
       seq: event.seq,
-      time: event.time,
     });
     next.lastReportTaskId = operation.taskId;
     return next;
@@ -507,35 +523,45 @@ function issueNavigationFields(report) {
   return { startCallId: report.callId, startSeq: report.seq };
 }
 
-function issueSummaries(state, task, range) {
-  const active = activeIssue(state, task.id);
+// Issue summaries for the reports inside `range`. Report names are resolved when
+// a report is folded, so no summary depends on reports outside its range.
+function issueSummaries(reports, range) {
   const summaries = new Map();
-  let continued;
-  for (const report of task.reports) {
-    if (!report.inIssue) {
-      continued = undefined;
-      continue;
-    }
-    const name = report.issue ?? continued;
-    if (typeof name !== 'string' || name.length === 0) {
-      continued = undefined;
-      continue;
-    }
-    continued = name;
-    if (typeof report.seq !== 'number') continue;
+  for (const report of reports) {
+    if (!report.inIssue) continue;
+    const name = report.issue;
+    if (typeof name !== 'string' || name.length === 0) continue;
     if (range && (report.seq < range.startSeq || (range.endSeq !== undefined && report.seq >= range.endSeq))) continue;
     let summary = summaries.get(name);
     if (!summary) {
-      summary = { name, firstSeq: report.seq, lastSeq: report.seq, active: false };
+      summary = { name, firstSeq: report.seq, lastSeq: report.seq };
       summaries.set(name, summary);
     }
     summary.lastSeq = report.seq;
     delete summary.startCallId;
     delete summary.startSeq;
     Object.assign(summary, issueNavigationFields(report));
-    if (active?.name === name && active.seq === report.seq) summary.active = true;
   }
   return [...summaries.values()].sort((left, right) => left.firstSeq - right.firstSeq);
+}
+
+// `active` describes the current plan, not the archived turn, so it is computed
+// while building the view instead of being frozen when the turn closes.
+function withActive(summary, active) {
+  return { ...summary, active: active?.name === summary.name && active.seq === summary.lastSeq };
+}
+
+// Summaries for one task inside one turn: the open turn reads its reports, a
+// closed turn reads the summaries archived when it ended.
+function turnSummaries(task, turn) {
+  return turn.endStatuses === undefined
+    ? issueSummaries(task.reports, { startSeq: turn.startSeq })
+    : turn.issues?.[task.id] ?? [];
+}
+
+function turnIssues(state, task, turn) {
+  const active = activeIssue(state, task.id);
+  return turnSummaries(task, turn).map((summary) => withActive(summary, active));
 }
 
 function navigationFields(task, beforeSeq) {
@@ -547,15 +573,18 @@ function navigationFields(task, beforeSeq) {
 }
 
 function currentPlanView(state) {
+  const turn = openTurn(state);
   return state.currentIds.map((id, index) => {
     const task = nodeById(state, id);
+    const active = activeIssue(state, task.id);
+    const summaries = turn === undefined ? [] : turnSummaries(task, turn);
     return {
       id,
       index: index + 1,
       content: task.content,
       status: task.status,
       ...navigationFields(task),
-      issues: issueSummaries(state, task),
+      issues: summaries.map((summary) => withActive(summary, active)),
     };
   });
 }
@@ -569,7 +598,7 @@ function historyTurnView(state, turn) {
       content: task.content,
       status: turn.endStatuses?.[id] ?? task.status,
       ...navigationFields(task, turn.endSeq),
-      issues: issueSummaries(state, task, turn),
+      issues: turnIssues(state, task, turn),
     };
   }).filter(Boolean);
   return {
@@ -600,7 +629,7 @@ function computeLedgerView(state) {
 // mutated in place. Node contents are therefore a pure function of that array
 // identity. The view also reads currentIds/turns/currentTurn/lastReportTaskId,
 // so those are compared separately; it deliberately ignores lastToolCallId (a
-// shallow `tool/call` copy must hit) and nextTaskNumber/version.
+// shallow `tool/call` copy must hit) and version.
 // A hit returns the exact same object so the projection registry can dedupe by
 // Object.is without re-running Zod parsing or JSON serialization.
 const ledgerViewCache = new WeakMap();

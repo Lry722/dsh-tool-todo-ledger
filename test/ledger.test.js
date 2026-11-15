@@ -235,7 +235,8 @@ test('a failed composite with a valid finish leaves the input state untouched', 
   );
   assert.deepEqual(state, before, 'the working copy must not leak a successful finish into the input');
   assert.equal(state.nodes[0].status, 'in_progress');
-  assert.equal(state.nextTaskNumber, 4);
+  // Task numbers derive from the nodes, so a discarded write cannot shift them.
+  assert.deepEqual(writeLedger(state, ['Next']).added, [{ index: 4, id: 't4', content: 'Next' }]);
 });
 
 test('reports validate issues and expose only the active issue', () => {
@@ -458,7 +459,7 @@ test('legacy local-task reports replay as issues', () => {
     },
   });
   assert.deepEqual(state.nodes[0].reports[0], {
-    index: 1, inIssue: true, issue: 'Legacy issue', seq: 3, time: 300,
+    index: 1, inIssue: true, issue: 'Legacy issue', seq: 3,
   });
   assert.equal(currentView(state).tasks[0].issue, 'Legacy issue');
   state = foldLedgerEvent(state, {
@@ -471,7 +472,7 @@ test('legacy local-task reports replay as issues', () => {
       },
     },
   });
-  assert.deepEqual(state.nodes[0].reports[1], { index: 1, inIssue: false, seq: 4, time: 400 });
+  assert.deepEqual(state.nodes[0].reports[1], { index: 1, inIssue: false, seq: 4 });
   assert.equal(currentView(state).tasks[0].issue, undefined);
 });
 
@@ -566,7 +567,7 @@ test('the view memo key compares plan and turn inputs independently of nodes', (
   }
 
   const baseView = ledgerView(state);
-  const ignored = { ...state, lastToolCallId: 'other-call', nextTaskNumber: 99 };
+  const ignored = { ...state, lastToolCallId: 'other-call' };
   assert.strictEqual(ledgerView(ignored), baseView, 'fields outside the view must not invalidate the memo');
 });
 

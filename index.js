@@ -16,8 +16,9 @@ const reportSchema = zod.object({
   inIssue: zod.boolean(),
   issue: zod.string().optional(),
   callId: zod.string().optional(),
-  seq: zod.number().optional(),
-  time: zod.number().optional(),
+  // The fold stamps the event seq on every report, so summaries never need to
+  // fall back to wall-clock time for ordering.
+  seq: zod.number(),
 });
 
 const navigationSchema = {
@@ -25,12 +26,15 @@ const navigationSchema = {
   startSeq: zod.number().optional(),
 };
 
-const issueViewSchema = zod.object({
+const issueSummarySchema = zod.object({
   name: zod.string(),
   firstSeq: zod.number(),
   lastSeq: zod.number(),
-  active: zod.boolean(),
   ...navigationSchema,
+});
+
+const issueViewSchema = issueSummarySchema.extend({
+  active: zod.boolean(),
 });
 
 const dockViewSchema = zod.array(zod.object({
@@ -76,27 +80,25 @@ const ledgerStateSchema = zod.object({
     id: zod.string(),
     content: zod.string(),
     status: zod.enum(['pending', 'in_progress', 'completed', 'void']),
+    // Only the open turn keeps more than its last report; closed turns fold the
+    // rest into `turns[].issues`.
     reports: zod.array(reportSchema),
-    createdSeq: zod.number(),
-    createdTime: zod.number(),
     startCallId: zod.string().optional(),
     startSeq: zod.number().optional(),
-    voidedSeq: zod.number().optional(),
-    voidedTime: zod.number().optional(),
   })),
   currentIds: zod.array(zod.string()),
   lastReportTaskId: zod.string().nullable(),
   lastToolCallId: zod.string().nullable(),
-  nextTaskNumber: zod.number().int().positive(),
   currentTurn: zod.number().int().nonnegative(),
   turns: zod.array(zod.object({
     turn: zod.number().int().nonnegative(),
     startSeq: zod.number(),
-    startTime: zod.number(),
     taskIds: zod.array(zod.string()),
     endSeq: zod.number().optional(),
-    endTime: zod.number().optional(),
     endStatuses: zod.record(zod.string(), zod.enum(['pending', 'in_progress', 'completed', 'void'])).optional(),
+    // Issue summaries for the reports this turn contained, kept so archived
+    // turns never need the raw reports again.
+    issues: zod.record(zod.string(), zod.array(issueSummarySchema)).optional(),
   })),
 });
 
@@ -107,7 +109,7 @@ export function apply(ctx, config) {
     init: emptyLedger,
     apply: foldLedgerEvent,
     wire: { viewSchema: todoViewSchema, view: ledgerView },
-    stateVersion: 7,
+    stateVersion: 8,
   });
   ctx.sessionProjections.register(historyProjection());
   const stepOf = installStepTracker(ctx);

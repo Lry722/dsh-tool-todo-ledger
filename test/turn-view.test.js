@@ -203,9 +203,8 @@ test('issue summaries deduplicate names and filter reports by turn boundaries', 
   state = turnEvent(state, 12, 'turn/end', 2);
 
   const view = ledgerView(state);
+  // `current` describes the current plan turn; earlier turns keep their own view.
   assert.deepEqual(view.current[0].issues.map((issue) => [issue.name, issue.firstSeq, issue.lastSeq, issue.active]), [
-    ['Alpha', 4, 8, false],
-    ['Beta', 7, 7, false],
     ['Gamma', 11, 11, true],
   ]);
   const first = view.turns.find((turn) => turn.turn === 1);
@@ -347,4 +346,78 @@ test('node lookup preserves ids and ordering when the nodes array is shuffled', 
     { content: 'B', status: 'pending' },
     { content: 'C', status: 'pending' },
   ]);
+});
+
+test('closing a turn archives its issues and keeps only the last report', () => {
+  let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
+  state = writeEvent(state, 2, ['Task']);
+  state = statusEvent(state, 3, 'start', 1);
+  state = reportEvent(state, 4, 1, true, 'Alpha', 'alpha-call');
+  state = reportEvent(state, 5, 1, true, undefined, 'continued-call');
+  assert.equal(state.nodes[0].reports.length, 2);
+
+  state = turnEvent(state, 6, 'turn/end', 1);
+  assert.equal(state.nodes[0].reports.length, 1, 'archived reports collapse to the last one');
+  assert.equal(state.nodes[0].reports[0].seq, 5);
+  assert.deepEqual(state.turns.find((turn) => turn.turn === 1).issues.t1, [
+    { name: 'Alpha', firstSeq: 4, lastSeq: 5, startCallId: 'continued-call', startSeq: 5 },
+  ]);
+
+  state = turnEvent(state, 7, 'turn/start', 2);
+  state = reportEvent(state, 8, 1, true, 'Beta', 'beta-call');
+  const view = ledgerView(state);
+  const first = view.turns.find((turn) => turn.turn === 1);
+  const second = view.turns.find((turn) => turn.turn === 2);
+  assert.deepEqual(first.tasks[0].issues.map((issue) => [issue.name, issue.firstSeq, issue.lastSeq]), [
+    ['Alpha', 4, 5],
+  ]);
+  assert.deepEqual(second.tasks[0].issues.map((issue) => [issue.name, issue.lastSeq, issue.active]), [
+    ['Beta', 8, true],
+  ]);
+
+  state = turnEvent(state, 9, 'turn/end', 2);
+  assert.equal(state.nodes[0].reports.length, 1);
+  assert.deepEqual(state.turns.find((turn) => turn.turn === 2).issues.t1.map((issue) => issue.name), ['Beta']);
+});
+
+test('a continued issue resolves from the report kept after a turn closed', () => {
+  let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
+  state = writeEvent(state, 2, ['Task']);
+  state = statusEvent(state, 3, 'start', 1);
+  state = reportEvent(state, 4, 1, true, 'Alpha', 'alpha-call');
+  state = turnEvent(state, 5, 'turn/end', 1);
+  state = turnEvent(state, 6, 'turn/start', 2);
+  // An older writer could leave a continuation unnamed; the fold resolves it
+  // from the report retained by the previous turn.
+  state = foldLedgerEvent(state, {
+    type: 'todo/write', seq: 7, time: 700,
+    data: {
+      todos: legacyTodos(state),
+      ledger: {
+        version: LEDGER_VERSION, operation: 'report', taskId: 't1', callId: 'continued-call',
+        report: { index: 1, inIssue: true },
+      },
+    },
+  });
+  assert.equal(state.nodes[0].reports.at(-1).issue, 'Alpha');
+});
+
+test('reports stay bounded however many turns and steps a session has', () => {
+  let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
+  state = writeEvent(state, 2, ['Task']);
+  state = statusEvent(state, 3, 'start', 1);
+  let seq = 4;
+  for (let turn = 1; turn <= 5; turn += 1) {
+    if (turn > 1) state = turnEvent(state, seq++, 'turn/start', turn);
+    for (let step = 0; step < 10; step += 1) state = reportEvent(state, seq++, 1, true, 'Work');
+    if (turn < 5) state = turnEvent(state, seq++, 'turn/end', turn);
+  }
+  // The open turn keeps its own reports plus the last report of the previous one.
+  assert.equal(state.nodes[0].reports.length, 11);
+  state = turnEvent(state, seq++, 'turn/end', 5);
+  assert.equal(state.nodes[0].reports.length, 1);
+  assert.equal(state.turns.length, 6, 'the synthetic turn 0 plus five real turns');
+  for (const turn of state.turns.slice(1)) {
+    assert.deepEqual(turn.issues.t1.map((issue) => issue.name), ['Work']);
+  }
 });

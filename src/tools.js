@@ -63,7 +63,7 @@ async function exportHistory(ctx, agent) {
   const session = agent.session;
   const events = owningHistory(ctx, session, 'todo_read');
   const document = {
-    format: 'dsh-todo-ledger-history/v1',
+    format: 'dsh-todo-ledger-history/v2',
     sessionId: String(session.id),
     exportedAt: new Date().toISOString(),
     state,

@@ -5,7 +5,13 @@ export const HISTORY_PROJECTION_KEY = 'todoLedgerHistory';
 const historyEventSchema = zod.object({
   seq: zod.number(),
   time: zod.number(),
-  data: zod.any(),
+  // Versioned operations keep only the semantic delta. `todos` repeats the whole
+  // plan on every event and the session log already carries it for the official
+  // todo projection, so retaining it here only duplicated the ledger state.
+  ledger: zod.any().optional(),
+  // Legacy snapshots have no delta; their full payload is the only record of the
+  // plan shape at that point, so it stays verbatim.
+  data: zod.any().optional(),
 });
 
 const historyStateSchema = zod.array(historyEventSchema);
@@ -15,17 +21,18 @@ export function emptyHistory() {
 }
 
 /**
- * Retain raw `todo/write` events for the opt-in export.
+ * Retain the durable `todo/write` records for the opt-in export.
  * The ledger projection already derives task state; this projection only keeps
- * the original durable records so export never has to read the session log
- * through a deprecated synchronous API.
+ * the original operations so export never has to read the session log through a
+ * deprecated synchronous API.
  * @param state - retained events, oldest first.
  * @param event - the next committed session event.
  * @returns the same array for unrelated events, or a new retained snapshot.
  */
 export function recordHistoryEvent(state, event) {
-  if (event.type !== 'todo/write') return state;
-  return [...state, { seq: event.seq, time: event.time, data: event.data }];
+  if (event.type !== 'todo/write' || !event.data) return state;
+  if (!event.data.ledger) return [...state, { seq: event.seq, time: event.time, data: event.data }];
+  return [...state, { seq: event.seq, time: event.time, ledger: event.data.ledger }];
 }
 
 export function historyProjection() {
@@ -34,6 +41,6 @@ export function historyProjection() {
     stateSchema: historyStateSchema,
     init: emptyHistory,
     apply: recordHistoryEvent,
-    stateVersion: 1,
+    stateVersion: 2,
   };
 }

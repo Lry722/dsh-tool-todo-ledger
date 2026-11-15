@@ -368,6 +368,24 @@ test('a PTC finish without reports uses the same confirmation', () => {
   );
 });
 
+test('a retired finish confirmation does not authorize a later finish', () => {
+  const h = guardHarness(inProgressLedger());
+  const finish = { finish: 1 };
+  h.setStep(message(call('todo_write')));
+  assert.match(h.run('todo_write-call', 'todo_write', 'todo_write-call', finish), /reorderFrom/);
+
+  // Reordering the task away retires the confirmation: it belonged to a plan
+  // that no longer exists and must not leak into a replacement task.
+  h.setState(writeLedger(inProgressLedger(), ['Replacement'], 1).state);
+  h.setStep(message(call('todo_write')));
+  assert.equal(h.run('todo_write-call', 'todo_write', 'todo_write-call', { todos: ['Next'] }), undefined);
+
+  // Recreating an unreported in-progress task asks for confirmation again.
+  h.setState(inProgressLedger());
+  h.setStep(message(call('todo_write')));
+  assert.match(h.run('todo_write-call', 'todo_write', 'todo_write-call', finish), /reorderFrom/);
+});
+
 test('a repeated active issue gets one steer that asks to omit the name', () => {
   const h = guardHarness(issueReportedLedger());
   h.setStep(message(call('todo_report'), call('bash')));
