@@ -6,8 +6,8 @@ import { createLedgerTools } from './src/tools.js';
 import { installReportGuard, installStepTracker } from './src/guard.js';
 
 export const name = 'tool-todo-ledger';
-export const inject = ['agents', 'llm', 'sessionProjections', 'tools'];
-export const Config = z.object({ reviewEnabled: z.boolean().default(false).volatile() });
+export const inject = ['agents', 'sessionProjections', 'tools'];
+export const Config = z.object({});
 
 const reportSchema = zod.object({
   // Legacy `localTask` reports can be replayed without an index; accepting the
@@ -108,7 +108,7 @@ const ledgerStateSchema = zod.object({
   })),
 });
 
-export function apply(ctx, config) {
+export function apply(ctx) {
   ctx.sessionProjections.register({
     key: 'todoLedger',
     stateSchema: ledgerStateSchema,
@@ -124,7 +124,7 @@ export function apply(ctx, config) {
   const attach = (agent) => {
     if (attached.has(agent)) return;
     const dispose = ctx.effect(() => agent.ctx.effect(() => {
-      const registrations = createLedgerTools(ctx, config).map((tool) => agent.ctx.tools.register(tool));
+      const registrations = createLedgerTools(ctx).map((tool) => agent.ctx.tools.register(tool));
       registrations.push(installReportGuard(ctx, agent, stepOf));
       return () => {
         for (const unregister of registrations.reverse()) unregister();

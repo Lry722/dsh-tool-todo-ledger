@@ -1,5 +1,3 @@
 - insert:
     - id: todo-ledger
       name: 'dsh-tool-todo-ledger'
-      config:
-        reviewEnabled: false

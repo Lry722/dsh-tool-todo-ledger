@@ -16,7 +16,6 @@
 
 ## 核心机制
 
-- **前置审查**：`todo_write` 追加或重排规划时，由独立无状态模型依据 DSH 当前生效的 `AGENTS.md` 指令审查待写入内容。审查走当前会话的模型路由，只纳入当前 surface 中来源为 `agent-instructions` 的内容。审查完成后才继续本次写入，违规则返回明确提示但不阻塞。审查技术失败时不向主会话报告，写入照常继续。仅修改任务状态时不触发审查。对于简单任务用户可能不希望开启该功能，提供一级 UI，方便切换开关状态。
 - **增量维护**：已完成任务只增不删，历史记录只读不可变。只有未开始或尚未完成的任务允许通过显式重排进行作废处理。
 - **原子写入**：`todo_write` 是唯一的规划与状态写入口，可在一次调用中依次完成旧任务、修改规划和启动新任务。所有操作校验成功后才追加事件，避免产生部分成功状态。
 - **显式流转**：通过 `todo_write` 的 `finish` 参数完成当前任务，并由工具自动启动下一个待处理任务，不允许静默跳过任务。目标确实变化时，通过同一工具重排当前规划。`finish` 前该 task 必须已有 `todo_report`；同一次回复中与 `finish` 并存的 `todo_report` 也计入，即使它在调用列表中排在 `finish` 之后。没有任何上报的首次 `finish` 会被 guard 拒绝并要求确认，模型必须区分“仅输出结论的收尾任务”与“前提已失效、应重排作废的 task”。
@@ -90,10 +89,6 @@ turn 的最终回复不需要调用 `todo_report`。
 传入 `reorderFrom` 时，保留所有已完成节点，把该位置及之后尚未完成的节点标记为作废，再追加 `todos` 中的新规划。省略 `todos` 或传入空数组表示只作废、不新增。旧规划节点及其中的上报记录完整保留，只是状态被标为作废。
 
 目标变化、任务阻塞或出现必须优先处理的新问题时，都通过重排表达。重排后清除上一次上报目标和当前 issue 展示；下一次进入 issue 时必须重新提供名称。若重排后没有进行中的任务，自动启动当前规划中的第一个待处理任务，返回值的 `started` 字段给出该任务内容。
-
-#### 前置审查
-
-只有实际追加或重排规划时才进行前置审查。单纯的 `finish`（含自动启动下一个任务）不调用审查模型。
 
 ### 2. `todo_read`
 
@@ -174,7 +169,6 @@ guard 读取状态或分类调用时出错，会向会话注入一条 notice 报
 - `todoLedger`：Host projection，从事件日志重建状态，并以该日志为唯一事实源。除任务节点外，还保存 `currentTurn`、逐 turn 工作集及轮末状态快照。projection `stateVersion` 升级会触发旧缓存重建，不改变 `todo/write` 事件格式或 `LEDGER_VERSION`。旧版 `localTask` / `inLocalTask` 上报在回放时转换为 `issue` / `inIssue`。
 - 上报只在当前 turn 内以原始记录保留：turn 关闭时把本 turn 的上报折叠为 `turns[].issues` 中的按任务 issue 摘要（名称、首末 seq、导航信息），每个任务只保留最后一条上报用于 issue 延续和当前 issue 判定。这样账本状态不会随 step 数量线性增长，历史视图也不需要重扫原始上报；`active` 在生成视图时按当前规划计算，不冻结在 turn 里。
 - `todoLedgerHistory`：只保留 `todo/write` 语义操作的 Host projection，供 `todo_read({full: true})` 导出（`dsh-todo-ledger-history/v2`）。版本化事件只记录 `{seq, time, ledger}`；每个事件携带的完整 `todos` 规划快照仍写在会话日志中供其他读取方使用，但不再复制进导出文件。旧版无 `ledger` 的快照保留完整 `data`。导出不再调用已废弃的 `session.snapshotEvents()` 同步读取，随 projection 回放一起覆盖恢复的会话。
-- 前置审查读取当前生效的 AGENTS.md 时使用 `session.deriveMessages()`，与模型可见 surface 保持一致，也不再调用 `session.eventAt()`。
 - 安装前的官方全量 `todo/write` 事件可作为旧版快照回放。
 
 ## 任务 dock 与右侧边栏
@@ -264,9 +258,8 @@ guard 读取状态或分类调用时出错，会向会话注入一条 notice 报
 - `src/ledger.js`：核心状态机与组合状态流转。
 - `src/tools.js`：Cordis 工具与历史导出。
 - `src/history.js`：原始 `todo/write` 事件的导出 projection。
-- `src/review.js`：独立模型审查。
 - `src/guard.js`：step 覆盖追踪、覆盖校验与工具硬性拦截。
 - `src/prompts.js`：加载提示词资源并填充模板占位符。
 - `index.js`：Host 生命周期、projection 状态与 wire schema。
 - `client.js`：精简 Dock、右侧轮次视图、turn 导航和 issue 展开组件。
-- `prompts/`：模型提示词、工具与参数说明、审查请求模板，以及守卫拦截、steer 警告和账本校验等运行文案。
+- `prompts/`：模型提示词、工具与参数说明，以及守卫拦截、steer 警告和账本校验等运行文案。

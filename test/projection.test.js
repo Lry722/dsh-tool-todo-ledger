@@ -29,7 +29,7 @@ function projectionHarness() {
       },
     },
   };
-  apply(ctx, { reviewEnabled: false });
+  apply(ctx);
   const projection = projections.get('todoLedger');
   assert.ok(projection, 'apply must register the todoLedger projection');
   assert.ok(projections.get(HISTORY_PROJECTION_KEY), 'apply must register the history projection');
@@ -42,7 +42,7 @@ function historyHarness() {
     sessionProjections: { register: (definition) => projections.set(definition.key, definition) },
     on() {},
     agents: { list: () => [] },
-  }, { reviewEnabled: false });
+  });
   return projections.get(HISTORY_PROJECTION_KEY);
 }
 

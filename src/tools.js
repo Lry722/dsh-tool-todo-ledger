@@ -10,8 +10,7 @@ import {
   reportLedger,
   updateLedger,
 } from './ledger.js';
-import { reviewTodoWrite } from './review.js';
-import { TOOL_MESSAGES, TOOL_PROMPTS, fillPrompt, reviewResult } from './prompts.js';
+import { TOOL_MESSAGES, TOOL_PROMPTS, fillPrompt } from './prompts.js';
 
 const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
 // Exports are private temporary files; remove them even when the caller never
@@ -82,10 +81,7 @@ async function exportHistory(ctx, agent) {
   return { path, eventCount: events.length };
 }
 
-export function createLedgerTools(ctx, config) {
-  const reviewEnabled = () => typeof config.reviewEnabled === 'object' && config.reviewEnabled !== null
-    ? config.reviewEnabled.get()
-    : config.reviewEnabled === true;
+export function createLedgerTools(ctx) {
   return [
     defineTool({
       name: 'todo_write',
@@ -109,26 +105,6 @@ export function createLedgerTools(ctx, config) {
       async execute(args, exec) {
         if (exec.signal?.aborted) return {};
         const result = updateLedger(owningState(ctx, exec, 'todo_write'), args);
-        let review;
-        if (result.write && reviewEnabled()) {
-          const pending = {
-            mode: result.write.mode,
-            ...(result.write.reorderFrom === undefined ? {} : { reorderFrom: result.write.reorderFrom }),
-            todos: result.write.added.map((task) => task.content),
-            invalidated: result.write.invalidated,
-          };
-          try {
-            review = await reviewTodoWrite(ctx, exec.agent, pending, exec.signal);
-            if (review.status === 'warning') review.message = reviewResult('warning', review.message);
-          } catch (error) {
-            review = undefined;
-            if (!exec.signal?.aborted) {
-              const reason = error instanceof Error ? error.message : String(error);
-              ctx.logger?.warn(`todo-ledger: plan review skipped: ${reason}`);
-            }
-          }
-        }
-        if (exec.signal?.aborted) return {};
         for (const operation of result.operations) {
           appendOperation(exec, operation.todos, {
             ...operation.ledger,
@@ -150,7 +126,6 @@ export function createLedgerTools(ctx, config) {
             } : {}),
           } : {}),
           ...(result.started ? { started: transitionResult(result.started) } : {}),
-          ...(review ? { review } : {}),
         };
       },
       presentCall: presentation(TOOL_MESSAGES.presentation.todo_write, 'edit'),

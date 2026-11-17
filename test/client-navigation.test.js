@@ -12,7 +12,6 @@ const React = {
 };
 
 const primitives = {
-  Switch: () => null,
   StateDot: () => null,
   IconChecklistOutlineRegular: () => null,
   IconChevronDownOutlineRegular: () => null,
@@ -52,10 +51,6 @@ function createContext(sessionId, instance) {
     locale: {
       register: () => () => {},
       bind: () => (key) => key,
-    },
-    configForms: {
-      get: () => ({ set: () => true }),
-      whileServed: (_namespaces, callback) => callback(),
     },
     sessions: {
       binding: () => ({ session: { loadThrough: async (seq) => { loaded.push(seq); } } }),

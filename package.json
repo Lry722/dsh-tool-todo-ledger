@@ -2,7 +2,7 @@
   "name": "dsh-tool-todo-ledger",
   "version": "0.1.1",
   "private": true,
-  "description": "Incremental, event-sourced todo ledger with explicit task transitions and optional AGENTS.md review",
+  "description": "Incremental, event-sourced todo ledger with explicit task transitions",
   "type": "module",
   "exports": {
     ".": "./index.js",
@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check index.js && node --check client.js && node --check src/ledger.js && node --check src/guard.js && node --check src/history.js && node --check src/prompts.js && node --check src/review.js && node --check src/tools.js"
+    "check": "node --check index.js && node --check client.js && node --check src/ledger.js && node --check src/guard.js && node --check src/history.js && node --check src/prompts.js && node --check src/tools.js"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.5",
@@ -46,7 +46,6 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-sidebar-right"
       ],
       "external": [

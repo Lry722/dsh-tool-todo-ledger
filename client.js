@@ -3,21 +3,16 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react');
     const {
-      Switch,
       StateDot,
       IconChecklistOutlineRegular,
       IconChevronDownOutlineRegular,
       IconChevronUpOutlineRegular,
     } = require('@deepseek-ai/dsh-client-ui-primitives');
     const h = React.createElement;
-    const namespace = 'todo-ledger';
     const locale = 'todoLedger';
     const sidebarId = 'dsh-tool-todo-ledger';
 
     const en = {
-      title: 'Review todo plans with AGENTS.md',
-      description: 'Before each todo_write plan change, an independent model reviews the plan against the active project instructions. Violations are reported without blocking the change.',
-      failed: 'Could not save preference',
       todoTitle: 'To-dos',
       sidebarTitle: 'Tasks',
       sidebarDescription: 'Inspect per-turn worksets, turn-end status, and issue summaries.',
@@ -47,9 +42,6 @@ window.__ModuleLoader__.load({
       jumpToIssue: 'Jump to the latest step that reported {issue}',
     };
     const zh = {
-      title: '使用 AGENTS.md 审查任务规划',
-      description: '每次 todo_write 修改规划前，由独立模型依据当前生效的项目指令进行审查。发现违例会明确提示，但不会阻塞修改。',
-      failed: '无法保存设置',
       todoTitle: '任务',
       sidebarTitle: '任务',
       sidebarDescription: '查看逐 turn 工作集、轮末状态和 issue 摘要。',
@@ -80,10 +72,6 @@ window.__ModuleLoader__.load({
     };
 
     const css = `
-      .todo-ledger-setting{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
-      .todo-ledger-setting__title{font-size:14px;line-height:20px;color:var(--dsw-alias-label-primary)}
-      .todo-ledger-setting__description{margin-top:4px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
-      .todo-ledger-setting__error{margin-top:4px;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary)}
       .todo-ledger-dock{box-sizing:border-box;flex:none;overflow:hidden;margin:0 auto;width:calc(100% - var(--dsh-composer-side-clearance) - var(--dsh-composer-side-clearance) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset));max-width:calc(var(--dsh-composer-card-max-width) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset));border:0;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg);background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-panel);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
       .todo-ledger-dock__body{display:flex;flex-direction:column;gap:8px;padding:6px 12px}
       .todo-ledger-dock__header{display:flex;align-items:center;gap:10px;width:100%;padding:0;border:none;background:transparent;text-align:left;cursor:pointer}
@@ -162,41 +150,6 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__open{display:inline-block;color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-sidebar__empty{padding:32px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;text-align:center}
     `;
-
-    function ReviewRow({ useReview, setReview, t }) {
-      const review = useReview((value) => value);
-      const [busy, setBusy] = React.useState(false);
-      const [failed, setFailed] = React.useState(false);
-      const enabled = review.value?.reviewEnabled === true;
-      const disabled = busy || review.status !== 'ready' || !review.writable;
-      const toggle = async (next) => {
-        if (disabled) return;
-        setBusy(true);
-        setFailed(false);
-        let accepted = false;
-        try {
-          accepted = await setReview(next);
-        } catch (_error) {
-          accepted = false;
-        }
-        setBusy(false);
-        setFailed(!accepted);
-      };
-      return h('div', { className: 'todo-ledger-setting' },
-        h('style', null, css),
-        h('div', null,
-          h('div', { className: 'todo-ledger-setting__title' }, t('title')),
-          h('div', { className: 'todo-ledger-setting__description' }, t('description')),
-          failed ? h('div', { className: 'todo-ledger-setting__error', role: 'alert' }, t('failed')) : null,
-        ),
-        h(Switch, {
-          checked: enabled,
-          disabled,
-          label: t('title'),
-          onChange: (next) => { void toggle(next); },
-        }),
-      );
-    }
 
     function progressLabel(todos, t) {
       const done = todos.filter((item) => item.status === 'completed').length;
@@ -717,7 +670,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'configForms', 'sessions', 'sidebarRightTabs'],
+      inject: ['slots', 'locale', 'sessions', 'sidebarRightTabs'],
       apply(ctx) {
         const uiStates = new Map();
         const t = ctx.locale.bind(locale);
@@ -752,18 +705,6 @@ window.__ModuleLoader__.load({
           key: sidebarId,
           locale,
         }, TodoSidebarTitle)));
-        const form = ctx.configForms.get(namespace);
-        const face = () => ({
-          hooks: { review: form },
-          setReview: (enabled) => form.set('reviewEnabled', enabled),
-        });
-        ctx.effect(() => ctx.configForms.whileServed([namespace], () => ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-          name: 'settings.general.item',
-          id: namespace,
-          order: 40,
-          locale,
-          inject: face,
-        }, ReviewRow))));
       },
     };
   },

@@ -20,20 +20,10 @@ function ledgerMessage(key, values) {
   return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
 }
 
-function harness({
-  enabled = false,
-  reviewText = '{"compliant":true}',
-  instructions = [],
-  signal,
-  onStream,
-  throwOnAbort = true,
-  logger,
-  stateAvailable = true,
-} = {}) {
+function harness({ signal, stateAvailable = true } = {}) {
   let state = emptyLedger();
   let history = emptyHistory();
   let seq = 0;
-  let reviewCalls = 0;
   const appended = [];
   const recordEvent = (event) => {
     appended.push(event);
@@ -41,11 +31,6 @@ function harness({
     history = recordHistoryEvent(history, event);
   };
   const execSignal = signal ?? new AbortController().signal;
-  const messages = instructions.map((text) => ({
-    role: 'user',
-    source: { kind: 'agent-instructions' },
-    content: [{ type: 'text', text }],
-  }));
   const ctx = {
     sessionProjections: {
       stateOf(_session, key) {
@@ -53,40 +38,21 @@ function harness({
         return stateAvailable ? state : undefined;
       },
     },
-    llm: {
-      stream(params) {
-        reviewCalls += 1;
-        onStream?.(params);
-        return (async function* () {
-          if (throwOnAbort && params.signal?.aborted) throw new Error('review aborted');
-          yield { type: 'text-delta', index: 0, text: reviewText };
-          if (throwOnAbort && params.signal?.aborted) throw new Error('review aborted');
-          yield { type: 'finish', reason: { kind: 'stop' } };
-        })();
-      },
-    },
-    ...(logger === undefined ? {} : { logger }),
   };
   const agent = {
     session: {
       id: 'session-1',
-      deriveMessages: () => messages,
-      requestHeader: () => ({ config: { provider: 'test', model: 'test' } }),
       append(type, data) {
         recordEvent({ type, data, seq: ++seq, time: seq * 100 });
       },
     },
   };
-  let current = enabled;
-  const config = { reviewEnabled: { get: () => current } };
-  const tools = Object.fromEntries(createLedgerTools(ctx, config).map((tool) => [tool.name, tool]));
+  const tools = Object.fromEntries(createLedgerTools(ctx).map((tool) => [tool.name, tool]));
   return {
     tools,
     agent,
     appended,
     state: () => state,
-    setEnabled(value) { current = value; },
-    reviewCalls() { return reviewCalls; },
     // Mirror the agent loop: every model-requested call logs tool/call before
     // its tool body appends ledger operations.
     beginCall(callId, turn = 1, step = 1) {
@@ -139,20 +105,17 @@ function legacyCompositeEvents(state, args, callId) {
   return { state: next, events };
 }
 
-test('todo_write appends a replayable delta and volatile review config is read per call', async () => {
+test('todo_write appends a replayable delta', async () => {
   const env = harness();
   assert.deepEqual(Object.keys(env.tools), ['todo_write', 'todo_read', 'todo_report']);
   const first = await env.tools.todo_write.execute({ todos: ['First'] }, env.exec);
-  assert.equal(first.review, undefined);
   assert.deepEqual(first.added, [{ index: 1, content: 'First' }]);
   assert.deepEqual(first.started, { content: 'First' });
   assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start']);
   assert.deepEqual(env.appended[0].data.todos, [{ content: 'First', status: 'pending' }]);
   assert.deepEqual(env.appended[1].data.todos, [{ content: 'First', status: 'in_progress' }]);
 
-  env.setEnabled(true);
   const second = await env.tools.todo_write.execute({ todos: ['Second'] }, env.exec);
-  assert.equal(second.review.status, 'passed');
   assert.equal(second.started, undefined);
   assert.equal(env.appended.length, 3);
   const read = await env.tools.todo_read.execute({}, env.exec);
@@ -236,81 +199,12 @@ test('a report that runs after its finish in the same step is recorded', async (
   assert.equal(env.state().nodes[0].reports.at(-1).callId, 'report-call');
 });
 
-test('review warnings are returned while technical failures stay invisible', async () => {
-  const warning = harness({
-    enabled: true,
-    instructions: ['Write tests before implementation.'],
-    reviewText: '{"compliant":false,"message":"Add the required test task."}',
-  });
-  const warned = await warning.tools.todo_write.execute({ todos: ['Implement'] }, warning.exec);
-  assert.equal(warned.review.status, 'warning');
-  assert.equal(warned.review.message, 'AGENTS.md review warning: Add the required test task.');
-  assert.equal(warning.appended.length, 2);
-
-  const malformed = harness({ enabled: true, instructions: ['Plan.'], reviewText: 'bad json' });
-  const continued = await malformed.tools.todo_write.execute({ todos: ['Implement'] }, malformed.exec);
-  assert.equal(Object.hasOwn(continued, 'review'), false);
-  assert.equal(malformed.appended.length, 2);
-});
-
-test('cancellation during review leaves the ledger untouched and logs nothing', async () => {
-  const controller = new AbortController();
-  const warnings = [];
-  const env = harness({
-    enabled: true,
-    instructions: ['Plan before writing.'],
-    signal: controller.signal,
-    onStream: () => controller.abort(),
-    logger: { warn: (text) => warnings.push(text) },
-  });
-  const result = await env.tools.todo_write.execute({ todos: ['Cancelled'] }, env.exec);
-  assert.deepEqual(result, {});
-  assert.equal(env.reviewCalls(), 1);
-  assert.equal(env.appended.length, 0);
-  assert.deepEqual(env.state().nodes, []);
-  assert.deepEqual(env.state().currentIds, []);
-  assert.equal(warnings.length, 0);
-
-  // A review that finishes after the abort must also discard its pending writes.
-  const completed = new AbortController();
-  const late = harness({
-    enabled: true,
-    instructions: ['Plan before writing.'],
-    signal: completed.signal,
-    onStream: () => completed.abort(),
-    throwOnAbort: false,
-  });
-  const lateResult = await late.tools.todo_write.execute({ todos: ['Cancelled'] }, late.exec);
-  assert.deepEqual(lateResult, {});
-  assert.equal(late.reviewCalls(), 1);
-  assert.equal(late.appended.length, 0);
-  assert.deepEqual(late.state().currentIds, []);
-});
-
-test('technical review failures still write and log a host warning', async () => {
-  const warnings = [];
-  const env = harness({
-    enabled: true,
-    instructions: ['Plan.'],
-    reviewText: 'bad json',
-    logger: { warn: (text) => warnings.push(text) },
-  });
-  const result = await env.tools.todo_write.execute({ todos: ['Implement'] }, env.exec);
-  assert.equal(Object.hasOwn(result, 'review'), false);
-  assert.deepEqual(result.added, [{ index: 1, content: 'Implement' }]);
-  assert.deepEqual(env.appended.map((event) => event.data.ledger.operation), ['write', 'start']);
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /^todo-ledger: plan review skipped: /);
-  assert.match(warnings[0], /json/i);
-});
-
 test('an already-aborted call writes nothing', async () => {
   const controller = new AbortController();
   controller.abort();
-  const env = harness({ enabled: true, instructions: ['Plan.'], signal: controller.signal });
+  const env = harness({ signal: controller.signal });
   const result = await env.tools.todo_write.execute({ todos: ['Ignored'] }, env.exec);
   assert.deepEqual(result, {});
-  assert.equal(env.reviewCalls(), 0);
   assert.equal(env.appended.length, 0);
   assert.deepEqual(env.state().currentIds, []);
 });
@@ -337,12 +231,10 @@ test('composite writes preserve separate start, report and finish operations', a
   assert.deepEqual(read.tasks, [{ index: 1, content: 'Task', status: 'completed' }]);
 });
 
-test('finish auto-starts the next task without triggering plan review', async () => {
-  const env = harness({ enabled: true, instructions: ['Plan carefully.'] });
+test('finish auto-starts the next task', async () => {
+  const env = harness();
   await env.tools.todo_write.execute({ todos: ['One', 'Two'] }, env.exec);
-  assert.equal(env.reviewCalls(), 1);
   const result = await env.tools.todo_write.execute({ finish: 1 }, env.exec);
-  assert.equal(env.reviewCalls(), 1);
   assert.deepEqual(result, {
     finished: { content: 'One' },
     started: { content: 'Two' },
