@@ -20,9 +20,10 @@ function ledgerMessage(key, values) {
   return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
 }
 
-function harness({ signal, stateAvailable = true } = {}) {
+function harness({ signal, stateAvailable = true, step } = {}) {
   let state = emptyLedger();
   let history = emptyHistory();
+  let currentStep = step;
   let seq = 0;
   const appended = [];
   const recordEvent = (event) => {
@@ -47,7 +48,9 @@ function harness({ signal, stateAvailable = true } = {}) {
       },
     },
   };
-  const tools = Object.fromEntries(createLedgerTools(ctx).map((tool) => [tool.name, tool]));
+  const tools = Object.fromEntries(
+    createLedgerTools(ctx, () => currentStep).map((tool) => [tool.name, tool]),
+  );
   return {
     tools,
     agent,
@@ -197,6 +200,92 @@ test('a report that runs after its finish in the same step is recorded', async (
   assert.deepEqual(reported, {});
   assert.equal(env.state().nodes[0].reports.length, 1);
   assert.equal(env.state().nodes[0].reports.at(-1).callId, 'report-call');
+});
+
+test('a report for a task appended later in the same step is deferred', async () => {
+  const step = {
+    content: [
+      { type: 'tool-call', id: 'report-call', name: 'todo_report', arguments: '{"index":1,"inIssue":false}' },
+      { type: 'tool-call', id: 'write-call', name: 'todo_write', arguments: '{"todos":["First"]}' },
+    ],
+  };
+  const env = harness({ step });
+
+  // The task does not exist yet, but the later write creates and starts it, so
+  // the report is accepted instead of failing the index range check.
+  env.beginCall('report-call', 2, 1);
+  const reported = await env.tools.todo_report.execute(
+    { index: 1, inIssue: false },
+    { ...env.exec, callId: 'report-call' },
+  );
+  assert.deepEqual(reported, { deferred: true });
+  assert.deepEqual(env.state().currentIds, []);
+
+  env.beginCall('write-call', 2, 1);
+  const written = await env.tools.todo_write.execute(
+    { todos: ['First'] },
+    { ...env.exec, callId: 'write-call' },
+  );
+  assert.deepEqual(written.added, [{ index: 1, content: 'First' }]);
+  assert.deepEqual(written.started, { content: 'First' });
+  assert.equal(env.state().nodes[0].reports.length, 1);
+  assert.equal(env.state().nodes[0].reports.at(-1).callId, 'report-call');
+  assert.deepEqual(
+    env.appended
+      .filter((event) => event.type === 'todo/write')
+      .map((event) => event.data.ledger.operation),
+    ['write', 'start', 'report'],
+  );
+});
+
+test('a deferred report still rejects a task that stays pending', async () => {
+  const step = {
+    content: [
+      { type: 'tool-call', id: 'report-call', name: 'todo_report', arguments: '{"index":2,"inIssue":false}' },
+      { type: 'tool-call', id: 'write-call', name: 'todo_write', arguments: '{"todos":["Later"]}' },
+    ],
+  };
+  const env = harness({ step });
+  await env.tools.todo_write.execute({ todos: ['Active'] }, env.exec);
+
+  env.beginCall('report-call', 2, 1);
+  await assert.rejects(
+    env.tools.todo_report.execute(
+      { index: 2, inIssue: false },
+      { ...env.exec, callId: 'report-call' },
+    ),
+    ledgerMessage('reportInactiveTask', { index: 2, status: 'pending', active: '1「Active」' }),
+  );
+});
+
+test('a deferred report waits for a later write to activate the task', async () => {
+  const step = {
+    content: [
+      { type: 'tool-call', id: 'report-call', name: 'todo_report', arguments: '{"index":2,"inIssue":false}' },
+      { type: 'tool-call', id: 'append-call', name: 'todo_write', arguments: '{"todos":["Later"]}' },
+      { type: 'tool-call', id: 'finish-call', name: 'todo_write', arguments: '{"finish":1}' },
+    ],
+  };
+  const env = harness({ step });
+  await env.tools.todo_write.execute({ todos: ['Active'] }, env.exec);
+
+  // The target is still pending after the append; the finish in the same step
+  // makes it active, so the report must wait for that second write.
+  env.beginCall('report-call', 2, 1);
+  const reported = await env.tools.todo_report.execute(
+    { index: 2, inIssue: false },
+    { ...env.exec, callId: 'report-call' },
+  );
+  assert.deepEqual(reported, { deferred: true });
+
+  env.beginCall('append-call', 2, 1);
+  await env.tools.todo_write.execute({ todos: ['Later'] }, { ...env.exec, callId: 'append-call' });
+  assert.equal(env.state().nodes[1].reports.length, 0);
+
+  env.beginCall('finish-call', 2, 1);
+  await env.tools.todo_write.execute({ finish: 1 }, { ...env.exec, callId: 'finish-call' });
+  assert.equal(env.state().nodes[1].reports.length, 1);
+  assert.equal(env.state().nodes[1].reports.at(-1).callId, 'report-call');
 });
 
 test('an already-aborted call writes nothing', async () => {

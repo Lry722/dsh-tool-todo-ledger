@@ -124,7 +124,7 @@ export function apply(ctx) {
   const attach = (agent) => {
     if (attached.has(agent)) return;
     const dispose = ctx.effect(() => agent.ctx.effect(() => {
-      const registrations = createLedgerTools(ctx).map((tool) => agent.ctx.tools.register(tool));
+      const registrations = createLedgerTools(ctx, stepOf).map((tool) => agent.ctx.tools.register(tool));
       registrations.push(installReportGuard(ctx, agent, stepOf));
       return () => {
         for (const unregister of registrations.reverse()) unregister();

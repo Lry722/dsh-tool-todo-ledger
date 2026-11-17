@@ -1,25 +1,11 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools';
 import { GUARD_MESSAGES, NOTICES, fillPrompt } from './prompts.js';
+import { callArguments, stepToolCalls } from './step.js';
 
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
 const PTC_DISPATCH_MARKER = ':ptc:';
-
-export function stepToolCalls(message) {
-  return message?.content?.filter((block) => block.type === 'tool-call') ?? [];
-}
-
-function callArguments(call) {
-  const raw = call?.arguments;
-  if (raw !== null && typeof raw === 'object') return raw;
-  if (typeof raw !== 'string' || raw.length === 0) return undefined;
-  try {
-    return JSON.parse(raw);
-  } catch (_error) {
-    return undefined;
-  }
-}
 
 /**
  * Task ids addressed by `todo_report` calls in this assistant step. With an

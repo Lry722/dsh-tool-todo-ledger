@@ -56,7 +56,7 @@ issue 展示按任务与 issue 名称聚合同名上报，只区分“当前 iss
 
 本文中的 **step** 指一次 assistant step。
 
-“并行调用 `todo_report`”指模型在同一个 assistant step 中，在发起其他动作的同时一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，工具在实际运行时按调用列表串行执行。覆盖校验不要求 `todo_report` 排在其它动作工具之前：只要同一个 assistant message 中出现 `todo_report` 即视为上报尝试，排在动作之后、尚未执行的上报按临时覆盖放行，后续 step 再校验它是否成功写入账本。`finish` 与 `todo_report` 的相对顺序同样不构成结构错误：`finish` 的确认检查会预读同一 message 中指向该 task 的 `todo_report`，而 `finish` 之后才执行到的上报按该 task 的收尾上报写入账本。
+“并行调用 `todo_report`”指模型在同一个 assistant step 中，在发起其他动作的同时一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，工具在实际运行时按调用列表串行执行。覆盖校验不要求 `todo_report` 排在其它动作工具之前：只要同一个 assistant message 中出现 `todo_report` 即视为上报尝试，排在动作之后、尚未执行的上报按临时覆盖放行，后续 step 再校验它是否成功写入账本。`finish` 与 `todo_report` 的相对顺序同样不构成结构错误：`finish` 的确认检查会预读同一 message 中指向该 task 的 `todo_report`，而 `finish` 之后才执行到的上报按该 task 的收尾上报写入账本。`todo_report` 的序号也可以引用同一 message 中后续 `todo_write` 才追加的任务；工具会投影剩余写入，等写入落地后再补记账本。
 
 turn 的最终回复不需要调用 `todo_report`。
 
@@ -110,6 +110,7 @@ turn 的最终回复不需要调用 `todo_report`。
 - **当前目标的序号**：
   整数值，按当前规划解释，声明本 step 的动作所属顶层任务，目标任务必须为 `in_progress`。
   若与上一次上报的序号不同，视为目标切换。必须先通过 `todo_write` 的 `finish` 标记前序任务完成，或通过重排作废旧目标，否则报错拒绝切换。已知序号时直接上报。序号不确定时先调用 `todo_read`，如果上报参数依赖本次读取结果，应在获得结果后的下一个 step 再上报。
+  同一个 assistant message 中，若排在当前上报之后的 `todo_write` 会追加这个序号，上报可以提前引用它：工具会先按该 step 剩余的全部写入投影最终规划并完成校验，等写入落地、目标处于 `in_progress` 后再补记账本。因此 `report` 与 `write` 的先后顺序不影响新任务的上报；投影后仍然无效的序号照常立即报错。
 - **是否处于 issue**：
   bool 值，由模型根据自身元认知判断当前行为是否进入主任务下需要单独跟踪的明确子问题。该参数始终必填，是为了要求模型在每个工作 step 显式作出判断，避免轻量 issue 机制被长期忽略。
   直接执行主任务的常规动作输出 `false`，只有处理比主任务更窄的具体子问题时才输出 `true`。issue 不得复述主任务，也不能代替主任务的完成与启动状态推进。

@@ -8,9 +8,9 @@ import {
   repeatedIssue,
   stepCoverage,
   stepReportTargets,
-  stepToolCalls,
   unreportedFinish,
 } from '../src/guard.js';
+import { stepToolCalls } from '../src/step.js';
 import {
   LEDGER_VERSION,
   emptyLedger,

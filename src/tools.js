@@ -11,6 +11,7 @@ import {
   updateLedger,
 } from './ledger.js';
 import { TOOL_MESSAGES, TOOL_PROMPTS, fillPrompt } from './prompts.js';
+import { callArguments, stepToolCalls } from './step.js';
 
 const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
 // Exports are private temporary files; remove them even when the caller never
@@ -57,6 +58,35 @@ function appendOperation(exec, todos, ledger) {
   });
 }
 
+/**
+ * The plan produced by every `todo_write` still listed after `callId` in this
+ * assistant step. A report may name a task the later write has not created yet;
+ * validating against this projection keeps the call order from mattering.
+ * @param state - the current `todoLedger` projection.
+ * @param message - the assistant message that requested this step's calls.
+ * @param callId - the reporting call, which bounds the projection.
+ * @returns the projected plan, or undefined when no later write applies.
+ */
+function projectedPlan(state, message, callId) {
+  const calls = stepToolCalls(message);
+  const position = calls.findIndex((call) => String(call.id) === String(callId));
+  if (position < 0) return undefined;
+  let projected = state;
+  let writes = 0;
+  for (const call of calls.slice(position + 1)) {
+    if (call.name !== 'todo_write') continue;
+    const args = callArguments(call);
+    if (args === null || typeof args !== 'object') continue;
+    try {
+      projected = updateLedger(projected, args).state;
+    } catch (_error) {
+      return undefined;
+    }
+    writes += 1;
+  }
+  return writes === 0 ? undefined : projected;
+}
+
 async function exportHistory(ctx, agent) {
   const state = owningState(ctx, { agent }, 'todo_read');
   const session = agent.session;
@@ -81,7 +111,58 @@ async function exportHistory(ctx, agent) {
   return { path, eventCount: events.length };
 }
 
-export function createLedgerTools(ctx) {
+export function createLedgerTools(ctx, stepOf) {
+  // Reports that name a task a later write in the same step has not created yet,
+  // grouped by session. Each intent is already validated against the projected
+  // plan; it is appended only after that write lands.
+  const deferredReports = new Map();
+
+  function queueDeferredReport(exec, message, intent) {
+    const key = String(exec.agent.session.id);
+    const queued = deferredReports.get(key);
+    if (queued?.message === message) {
+      queued.intents.push(intent);
+      return;
+    }
+    deferredReports.set(key, { message, intents: [intent] });
+  }
+
+  function flushDeferredReports(exec, message) {
+    const key = String(exec.agent.session.id);
+    const queued = deferredReports.get(key);
+    if (queued === undefined) return;
+    if (queued.message !== message) {
+      deferredReports.delete(key);
+      return;
+    }
+    const calls = stepToolCalls(message);
+    const position = calls.findIndex((call) => String(call.id) === String(exec.callId));
+    // Another write may still make the target active; only give up after the
+    // step's last write. The projected validation already guaranteed that the
+    // intent will resolve in the final plan.
+    const moreWrites = position >= 0
+      && calls.slice(position + 1).some((call) => call.name === 'todo_write');
+    const unresolved = [];
+    for (const intent of queued.intents) {
+      const state = owningState(ctx, exec, 'todo_report');
+      const index = state.currentIds.indexOf(intent.taskId) + 1;
+      if (index < 1) continue;
+      try {
+        const result = reportLedger(state, index, intent.inIssue, intent.issue);
+        appendOperation(exec, legacyTodos(result.state), {
+          operation: 'report',
+          taskId: result.taskId,
+          callId: intent.callId,
+          report: result.report,
+        });
+      } catch (_error) {
+        if (moreWrites) unresolved.push(intent);
+      }
+    }
+    if (unresolved.length === 0) deferredReports.delete(key);
+    else queued.intents = unresolved;
+  }
+
   return [
     defineTool({
       name: 'todo_write',
@@ -111,6 +192,7 @@ export function createLedgerTools(ctx) {
             ...(operation.ledger.operation === 'start' ? { callId: String(exec.callId) } : {}),
           });
         }
+        flushDeferredReports(exec, stepOf?.(exec.agent.session));
         const withoutInternalId = ({ id, ...task }) => task;
         const transitionResult = ({ taskId }) => ({
           content: result.state.nodes.find((node) => node.id === taskId).content,
@@ -168,12 +250,26 @@ export function createLedgerTools(ctx) {
       },
       output: { schema: OUTPUT_SCHEMA, render: textOutput },
       async execute(args, exec) {
-        const result = reportLedger(
-          owningState(ctx, exec, 'todo_report'),
-          args.index,
-          args.inIssue,
-          args.issue,
-        );
+        const state = owningState(ctx, exec, 'todo_report');
+        if (args.index > state.currentIds.length) {
+          const message = stepOf?.(exec.agent.session);
+          const projected = projectedPlan(state, message, exec.callId);
+          if (projected !== undefined) {
+            // Validate against the plan the later write will produce, so a
+            // task that stays pending or an unnamed issue still fails now.
+            const future = reportLedger(projected, args.index, args.inIssue, args.issue);
+            queueDeferredReport(exec, message, {
+              taskId: future.taskId,
+              // Keep the issue resolved against the projected plan: another
+              // report later in the step must not change what this one continues.
+              inIssue: future.report.inIssue,
+              issue: future.report.issue,
+              callId: String(exec.callId),
+            });
+            return { deferred: true };
+          }
+        }
+        const result = reportLedger(state, args.index, args.inIssue, args.issue);
         appendOperation(exec, legacyTodos(result.state), {
           operation: 'report',
           taskId: result.taskId,
