@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   LEDGER_VERSION,
-  adjacentTurn,
-  defaultHistoryTurn,
   dockTodos,
   emptyLedger,
   finishLedger,
@@ -20,7 +18,7 @@ function at(seq) {
 }
 
 function writeEvent(state, seq, todos, reorderFrom) {
-  const result = writeLedger(state, todos, reorderFrom, at(seq));
+  const result = writeLedger(state, todos, reorderFrom);
   return foldLedgerEvent(state, {
     type: 'todo/write',
     ...at(seq),
@@ -117,7 +115,6 @@ test('turn history carries unfinished work and freezes each turn-end status', ()
   assert.equal(taskById(first, 't2').status, 'in_progress', 'later completion must not rewrite turn 1');
   assert.equal(taskById(second, 't2').status, 'completed', 'the same task has its own turn 2 status');
   assert.deepEqual(third.tasks.map((task) => [task.id, task.status]), [['t4', 'pending']]);
-  assert.equal(defaultHistoryTurn(view.turns), 3, 'the latest non-empty turn is the default, even while it is open');
   assert.deepEqual(view.current.map((task) => [task.index, task.id, task.status]), [
     [1, 't1', 'completed'],
     [2, 't2', 'completed'],
@@ -147,12 +144,6 @@ test('empty turns remain selectable and Dock hides an empty new turn', () => {
   assert.deepEqual(view.turns.map((turn) => turn.turn), [0, 1, 2, 3]);
   assert.equal(view.turns.find((turn) => turn.turn === 2).total, 0);
   assert.equal(view.turns.find((turn) => turn.turn === 2).open, false);
-  assert.equal(defaultHistoryTurn(view.turns), 1);
-  assert.equal(adjacentTurn(view.turns, 1, 1), 2);
-  assert.equal(adjacentTurn(view.turns, 2, 1), 3);
-  assert.equal(adjacentTurn(view.turns, 0, -1), undefined);
-  assert.equal(adjacentTurn(view.turns, 3, 1), undefined);
-  assert.equal(adjacentTurn(view.turns, 99, 1), undefined);
 });
 
 test('turn zero preserves no-turn and legacy snapshot playback', () => {
@@ -169,7 +160,6 @@ test('turn zero preserves no-turn and legacy snapshot playback', () => {
   assert.deepEqual(state.turns[0].endStatuses, { 'legacy-1-1': 'completed', 'legacy-1-2': 'pending' });
   assert.deepEqual(state.turns[1].taskIds, ['legacy-1-2']);
   assert.deepEqual(dockTodos(state).map((task) => task.content), ['Legacy pending']);
-  assert.equal(defaultHistoryTurn(ledgerView(state).turns), 1);
 });
 
 test('open turns use live status while archived turns keep their snapshots', () => {
@@ -178,7 +168,6 @@ test('open turns use live status while archived turns keep their snapshots', () 
   let turn = ledgerView(state).turns[0];
   assert.equal(turn.open, true);
   assert.equal(turn.tasks[0].status, 'in_progress');
-  assert.equal(defaultHistoryTurn(ledgerView(state).turns), 0);
 
   state = turnEvent(state, 3, 'turn/end', 0);
   state = statusEvent(state, 4, 'finish', 1);

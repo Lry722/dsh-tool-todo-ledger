@@ -19,11 +19,9 @@ const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
 export const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function scheduleExportCleanup(directory, ttlMs = EXPORT_TTL_MS) {
-  const timer = setTimeout(() => {
+  setTimeout(() => {
     void rm(directory, { recursive: true, force: true }).catch(() => {});
-  }, ttlMs);
-  timer.unref?.();
-  return timer;
+  }, ttlMs).unref?.();
 }
 
 function textOutput(_args, value) {
@@ -56,6 +54,17 @@ function appendOperation(exec, todos, ledger) {
     todos,
     ledger: { version: LEDGER_VERSION, ...ledger },
   });
+}
+
+function recordReport(exec, state, index, inIssue, issue, callId) {
+  const result = reportLedger(state, index, inIssue, issue);
+  appendOperation(exec, legacyTodos(result.state), {
+    operation: 'report',
+    taskId: result.taskId,
+    callId,
+    report: result.report,
+  });
+  return result;
 }
 
 /**
@@ -112,55 +121,45 @@ async function exportHistory(ctx, agent) {
 }
 
 export function createLedgerTools(ctx, stepOf) {
-  // Reports that name a task a later write in the same step has not created yet,
-  // grouped by session. Each intent is already validated against the projected
-  // plan; it is appended only after that write lands.
-  const deferredReports = new Map();
+  // Reports that name a task a later write in the same step has not created yet.
+  // Each intent is already validated against the projected plan; it is appended
+  // only after that write lands. A tool set belongs to one agent and an agent
+  // keeps one session, so the queue needs neither a session key nor a map.
+  let deferred = { message: undefined, intents: [] };
 
-  function queueDeferredReport(exec, message, intent) {
-    const key = String(exec.agent.session.id);
-    const queued = deferredReports.get(key);
-    if (queued?.message === message) {
-      queued.intents.push(intent);
-      return;
-    }
-    deferredReports.set(key, { message, intents: [intent] });
+  function queueDeferredReport(message, intent) {
+    if (deferred.message !== message) deferred = { message, intents: [] };
+    deferred.intents.push(intent);
+  }
+
+  function dropDeferred() {
+    deferred = { message: undefined, intents: [] };
   }
 
   function flushDeferredReports(exec, message) {
-    const key = String(exec.agent.session.id);
-    const queued = deferredReports.get(key);
-    if (queued === undefined) return;
-    if (queued.message !== message) {
-      deferredReports.delete(key);
+    if (deferred.message !== message) {
+      dropDeferred();
       return;
     }
-    const calls = stepToolCalls(message);
-    const position = calls.findIndex((call) => String(call.id) === String(exec.callId));
-    // Another write may still make the target active; only give up after the
-    // step's last write. The projected validation already guaranteed that the
-    // intent will resolve in the final plan.
-    const moreWrites = position >= 0
-      && calls.slice(position + 1).some((call) => call.name === 'todo_write');
+    // A later write in the same step may still activate the target, so an
+    // intent that cannot be recorded yet stays queued; the next step's first
+    // write drops the whole queue, so nothing leaks past its step.
     const unresolved = [];
-    for (const intent of queued.intents) {
+    for (const intent of deferred.intents) {
       const state = owningState(ctx, exec, 'todo_report');
       const index = state.currentIds.indexOf(intent.taskId) + 1;
-      if (index < 1) continue;
+      if (index < 1) {
+        unresolved.push(intent);
+        continue;
+      }
       try {
-        const result = reportLedger(state, index, intent.inIssue, intent.issue);
-        appendOperation(exec, legacyTodos(result.state), {
-          operation: 'report',
-          taskId: result.taskId,
-          callId: intent.callId,
-          report: result.report,
-        });
+        recordReport(exec, state, index, intent.inIssue, intent.issue, intent.callId);
       } catch (_error) {
-        if (moreWrites) unresolved.push(intent);
+        unresolved.push(intent);
       }
     }
-    if (unresolved.length === 0) deferredReports.delete(key);
-    else queued.intents = unresolved;
+    if (unresolved.length === 0) dropDeferred();
+    else deferred.intents = unresolved;
   }
 
   return [
@@ -258,7 +257,7 @@ export function createLedgerTools(ctx, stepOf) {
             // Validate against the plan the later write will produce, so a
             // task that stays pending or an unnamed issue still fails now.
             const future = reportLedger(projected, args.index, args.inIssue, args.issue);
-            queueDeferredReport(exec, message, {
+            queueDeferredReport(message, {
               taskId: future.taskId,
               // Keep the issue resolved against the projected plan: another
               // report later in the step must not change what this one continues.
@@ -269,13 +268,7 @@ export function createLedgerTools(ctx, stepOf) {
             return { deferred: true };
           }
         }
-        const result = reportLedger(state, args.index, args.inIssue, args.issue);
-        appendOperation(exec, legacyTodos(result.state), {
-          operation: 'report',
-          taskId: result.taskId,
-          callId: String(exec.callId),
-          report: result.report,
-        });
+        recordReport(exec, state, args.index, args.inIssue, args.issue, String(exec.callId));
         return {};
       },
       presentCall: presentation(TOOL_MESSAGES.presentation.todo_report),

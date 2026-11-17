@@ -30,7 +30,7 @@ function at(seq) {
 }
 
 function writeEvent(state, seq, todos, reorderFrom) {
-  const result = writeLedger(state, todos, reorderFrom, at(seq));
+  const result = writeLedger(state, todos, reorderFrom);
   return foldLedgerEvent(state, {
     type: 'todo/write',
     ...at(seq),
@@ -265,15 +265,14 @@ test('composite operations publish intermediate legacy snapshots instead of full
   state = finishLedger(state, 1).state;
   state = startLedger(state, 2).state;
   const before = structuredClone(state);
-  const meta = at(40);
   const result = updateLedger(state, {
     finish: 2,
     reorderFrom: 3,
     todos: ['Test replacement', 'Write documentation'],
-  }, meta);
+  });
 
   const finishedStep = finishLedger(before, 2);
-  const writeStep = writeLedger(finishedStep.state, ['Test replacement', 'Write documentation'], 3, meta);
+  const writeStep = writeLedger(finishedStep.state, ['Test replacement', 'Write documentation'], 3);
   const startedStep = startLedger(writeStep.state, 3);
 
   assert.deepEqual(result.operations, [

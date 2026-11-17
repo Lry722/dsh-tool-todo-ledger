@@ -22,22 +22,8 @@ function clone(value) {
   return structuredClone(value);
 }
 
-// Read-path node index. Keyed by the `state.nodes` array reference: every
-// semantic fold replaces that array and never mutates a published state, so an
-// index can be reused for as long as the array identity is unchanged. Keeping
-// the first node for a duplicated id mirrors the old `nodes.find` behavior.
-const nodeIndexCache = new WeakMap();
-
 function nodeById(state, id) {
-  let index = nodeIndexCache.get(state.nodes);
-  if (index === undefined) {
-    index = new Map();
-    for (const node of state.nodes) {
-      if (!index.has(node.id)) index.set(node.id, node);
-    }
-    nodeIndexCache.set(state.nodes, index);
-  }
-  return index.get(id);
+  return state.nodes.find((node) => node.id === id);
 }
 
 function openTurn(state) {
@@ -122,7 +108,7 @@ function nextTaskNumber(state) {
   return next;
 }
 
-export function normalizeTasks(values) {
+function normalizeTasks(values) {
   if (!Array.isArray(values)) throw ledgerError('todosArray');
   const tasks = values.map(contentOf);
   const unique = new Set(tasks);
@@ -130,7 +116,7 @@ export function normalizeTasks(values) {
   return tasks;
 }
 
-export function taskAt(state, index, toolName) {
+function taskAt(state, index, toolName) {
   if (!Number.isInteger(index) || index < 1 || index > state.currentIds.length) {
     throw ledgerError('taskIndexRange', { tool: toolName, count: state.currentIds.length });
   }
@@ -243,9 +229,6 @@ function applyWrite(state, rawTasks, reorderFrom) {
     added.push({ id, content });
   }
   if (reorder) state.lastReportTaskId = null;
-  // `nodes` gained entries under the same array identity; drop any cached
-  // read-path index so later lookups see the appended nodes.
-  nodeIndexCache.delete(state.nodes);
 
   const numberedAdded = added.map((task) => ({
     index: state.currentIds.indexOf(task.id) + 1,
@@ -690,18 +673,4 @@ export function ledgerView(state) {
     view,
   });
   return view;
-}
-
-export function defaultHistoryTurn(turns) {
-  // The sidebar shows one turn at a time, so land on the most recent turn with
-  // actual work. Empty turns stay reachable but never become the default.
-  const nonEmpty = turns.filter((turn) => turn.total > 0);
-  return (nonEmpty.at(-1) ?? turns.at(-1))?.turn;
-}
-
-export function adjacentTurn(turns, selectedTurn, offset) {
-  const ordered = [...turns].sort((left, right) => left.turn - right.turn);
-  const index = ordered.findIndex((turn) => turn.turn === selectedTurn);
-  if (index < 0 || !Number.isInteger(offset)) return undefined;
-  return ordered[index + offset]?.turn;
 }

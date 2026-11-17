@@ -176,7 +176,7 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
  * @param execution - the tool execution being classified.
  * @returns true for a PTC sub-dispatch.
  */
-export function isPtcDispatch(execution) {
+function isPtcDispatch(execution) {
   const callId = String(execution?.callId ?? '');
   const rootCallId = String(execution?.rootCallId ?? '');
   return callId !== rootCallId
