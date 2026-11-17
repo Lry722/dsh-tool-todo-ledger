@@ -25,7 +25,9 @@ function callArguments(call) {
  * Task ids addressed by `todo_report` calls in this assistant step. With an
  * `afterCallId`, only calls listed after it are considered: such a report has
  * not run yet, so a finish can look forward to it. Reports that already ran are
- * judged by the ledger instead, because they may have failed.
+ * judged by the ledger instead, because they may have failed. A `reorderFrom`
+ * between the boundary and a report rebases the later indices, so that report
+ * is not counted against the pre-reorder plan.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's tool calls.
  * @param afterCallId - optional call id that bounds the look-ahead.
@@ -42,6 +44,10 @@ export function stepReportTargets(state, message, afterCallId) {
     start = boundary + 1;
   }
   for (const call of calls.slice(start)) {
+    if (call.name === 'todo_write') {
+      if (callArguments(call)?.reorderFrom !== undefined) break;
+      continue;
+    }
     if (call.name !== 'todo_report') continue;
     const index = callArguments(call)?.index;
     if (!Number.isInteger(index) || index < 1 || index > state.currentIds.length) continue;
@@ -490,12 +496,13 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
           if (task?.status !== 'in_progress') memory.finish.delete(id);
         }
         const unreported = unreportedFinish(state, execution);
+        const finishBoundary = execution.rootCallId ?? execution.callId;
         // A report later in the same step counts: it will run after this finish,
         // and the ledger accepts it as the finished task's closing report.
         if (
           unreported
           && !memory.finish.delete(unreported.taskId)
-          && !stepReportTargets(state, message, execution.rootCallId).has(unreported.taskId)
+          && !stepReportTargets(state, message, finishBoundary).has(unreported.taskId)
         ) {
           memory.finish.add(unreported.taskId);
           return fillPrompt(GUARD_MESSAGES.unreportedFinish, { index: unreported.index });

@@ -233,6 +233,7 @@ test('a report that runs after its finish in the same step is recorded', async (
   );
   assert.deepEqual(reported, {});
   assert.equal(env.state().nodes[0].reports.length, 1);
+  assert.equal(env.state().nodes[0].reports.at(-1).callId, 'report-call');
 });
 
 test('review warnings are returned while technical failures stay invisible', async () => {

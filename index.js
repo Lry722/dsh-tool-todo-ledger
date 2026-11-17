@@ -115,7 +115,7 @@ export function apply(ctx, config) {
     init: emptyLedger,
     apply: foldLedgerEvent,
     wire: { viewSchema: todoViewSchema, view: ledgerView },
-    stateVersion: 9,
+    stateVersion: 10,
   });
   ctx.sessionProjections.register(historyProjection());
   const stepOf = installStepTracker(ctx);

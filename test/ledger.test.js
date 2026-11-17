@@ -194,6 +194,34 @@ test('a report after the finish in the same step records the finished task', () 
   );
 });
 
+test('a late report can continue the issue recorded before the finish', () => {
+  let state = startEvent(planned(), 1, 1);
+  state = reportEvent(state, 2, 1, true, 'Inspect official API', 'issue-call');
+  state = toolCallEvent(state, 3, 'finish-call', 4, 2);
+  state = finishEvent(state, 4, 1);
+  state = startEvent(state, 5, 2, 'finish-call');
+  // A report for the new active task moves the latest-report target away from
+  // the finished task; continuation still resolves from that task's own report.
+  state = reportEvent(state, 6, 2, false, undefined, 'next-report');
+
+  const late = reportLedger(toolCallEvent(state, 7, 'report-call', 4, 2), 1, true);
+  assert.equal(late.state.nodes[0].reports.at(-1).issue, 'Inspect official API');
+});
+
+test('a tool call without step metadata clears the previous step', () => {
+  let state = startEvent(planned(), 1, 1);
+  state = toolCallEvent(state, 2, 'finish-call', 4, 2);
+  state = toolCallEvent(state, 3, 'anonymous-call');
+
+  // A finish after the anonymous call must not inherit the older step and look
+  // like it belongs to a report that was already executed.
+  assert.equal(state.lastToolCallTurn, undefined);
+  assert.equal(state.lastToolCallStep, undefined);
+  state = finishEvent(state, 4, 1);
+  assert.equal(state.nodes[0].finishTurn, undefined);
+  assert.equal(state.nodes[0].finishStep, undefined);
+});
+
 test('composite updates finish and reorder in a fixed order', () => {
   let state = writeLedger(emptyLedger(), ['Confirm', 'Implement', 'Test', 'Document']).state;
   state = startLedger(state, 1).state;

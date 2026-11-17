@@ -147,9 +147,9 @@ turn 的最终回复不需要调用 `todo_report`。
 
 延续同一个 active issue 时重复提供 `issue` 名称同样不算结构错误，但会浪费上下文。guard 检测到本次上报的名称与上一次相同后，steer 一次提醒省略 `issue`、只保留 `inIssue: true`，上报本身照常放行。同一 issue 的连续重复只提醒一次；模型改为省略名称（或切换、离开 issue）后提醒重新武装，后续再次重复时重新提醒。
 
-`todo_write` 的 `finish` 另有结构确认：目标 task 没有任何 `todo_report` 时，首次 `finish` 被拒绝并返回提示，模型可选择用 `reorderFrom` 作废被证伪的 task，或再次 `finish` 同一 task 确认它是无需工具动作、只输出最终结论的收尾任务。确认状态按 task 的稳定 ID 记录，不会因序号复用或重排误放行其他 task。确认检查会预读同一 assistant message 中排在 `finish` 之后、指向该 task 的 `todo_report`：该上报尚未执行，视为即将落库，不再要求二次确认。已经执行过但未成功写入账本的上报不算，避免一次失败的上报让 finish 绕过确认。
+`todo_write` 的 `finish` 另有结构确认：目标 task 没有任何 `todo_report` 时，首次 `finish` 被拒绝并返回提示，模型可选择用 `reorderFrom` 作废被证伪的 task，或再次 `finish` 同一 task 确认它是无需工具动作、只输出最终结论的收尾任务。确认状态按 task 的稳定 ID 记录，不会因序号复用或重排误放行其他 task。确认检查会预读同一 assistant message 中排在 `finish` 之后、指向该 task 的 `todo_report`：该上报尚未执行，视为即将落库，不再要求二次确认。已经执行过但未成功写入账本的上报不算，避免一次失败的上报让 finish 绕过确认。若 `finish` 与上报之间发生 `reorderFrom` 重排，后续上报的序号会基于新规划重新解释，确认检查不再预读这些上报。
 
-上报按执行顺序写入账本。`finish` 之后才执行到的 `todo_report` 会看到 task 已 `completed`；只要该 `finish` 发生在当前 step（用 `tool/call` 的 turn/step 判定，PTC 子调用共用外层 `run_code` 的 step），账本仍接受该上报并将其记为已完成 task 的收尾上报，不报“任务不是进行中”。这类补报不改变当前 issue 的归属，也不能用于覆盖后续动作 step。来自更晚 step 的补报仍会被拒绝，模型应上报当前进行中的 task。
+上报按执行顺序写入账本。`finish` 之后才执行到的 `todo_report` 会看到 task 已 `completed`；只要该 `finish` 发生在当前 step（用 `tool/call` 的 turn/step 判定，PTC 子调用共用外层 `run_code` 的 step），账本仍接受该上报并将其记为已完成 task 的收尾上报，不报“任务不是进行中”。补报延续 issue 时以该 task 自己的上一条上报为准。这类补报不改变当前 issue 的归属，也不能用于覆盖后续动作 step。来自更晚 step 的补报仍会被拒绝，模型应上报当前进行中的 task。
 
 guard 借助 `rootCallId` 把 PTC 子调用归属到外层 `run_code`，并按程序而不是按 assistant message 校验：
 

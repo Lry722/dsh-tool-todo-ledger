@@ -366,13 +366,16 @@ function finishedInCurrentStep(state, task) {
 
 export function reportLedger(state, index, inIssue, rawIssue) {
   const { id, task } = taskAt(state, index, 'todo_report');
+  const lateFinish = finishedInCurrentStep(state, task);
   if (typeof inIssue !== 'boolean') throw ledgerError('inIssueBoolean');
   if (rawIssue !== undefined && (typeof rawIssue !== 'string' || rawIssue.trim().length === 0)) {
     throw ledgerError('issueString');
   }
   let issue = rawIssue?.trim();
   if (inIssue && issue === undefined) {
-    const previous = state.lastReportTaskId === id ? task.reports.at(-1) : undefined;
+    // A late closing report may continue the issue it recorded before the
+    // finish, even if another task received the latest report in between.
+    const previous = lateFinish || state.lastReportTaskId === id ? task.reports.at(-1) : undefined;
     if (previous?.inIssue !== true || typeof previous.issue !== 'string') {
       throw ledgerError('issueRequired');
     }
@@ -381,7 +384,6 @@ export function reportLedger(state, index, inIssue, rawIssue) {
   if (!inIssue && issue !== undefined) {
     throw ledgerError('issueOmitted');
   }
-  const lateFinish = finishedInCurrentStep(state, task);
   if (task.status !== 'in_progress' && !lateFinish) {
     const active = inProgressEntry(state);
     throw active
@@ -477,8 +479,10 @@ export function foldLedgerEvent(state, event) {
     return {
       ...state,
       lastToolCallId: event.data.callId,
-      ...(Number.isInteger(event.data.turn) ? { lastToolCallTurn: event.data.turn } : {}),
-      ...(Number.isInteger(event.data.step) ? { lastToolCallStep: event.data.step } : {}),
+      // Clear a previous step when this call cannot identify one; inheriting it
+      // would let a finish look like it belongs to an older model step.
+      lastToolCallTurn: Number.isInteger(event.data.turn) ? event.data.turn : undefined,
+      lastToolCallStep: Number.isInteger(event.data.step) ? event.data.step : undefined,
     };
   }
   if (event.type !== 'todo/write' || !event.data || !Array.isArray(event.data.todos)) return state;
@@ -518,8 +522,8 @@ export function foldLedgerEvent(state, event) {
       task.startSeq = event.seq;
     }
     if (operation.operation === 'finish') {
-      // PTC sub-calls share the outer `run_code` tool call, so this also scopes
-      // a late report to the program that finished the task.
+      // PTC sub-calls share the outer `run_code` tool call, so they inherit the
+      // program's step and can scope a late report the same way.
       if (Number.isInteger(state.lastToolCallTurn) && Number.isInteger(state.lastToolCallStep)) {
         task.finishTurn = state.lastToolCallTurn;
         task.finishStep = state.lastToolCallStep;

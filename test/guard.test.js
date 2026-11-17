@@ -188,6 +188,20 @@ test('stepReportTargets resolves report indices against the current plan', () =>
     )],
     ['t2'],
   );
+  // A reorder rebases every later index, so the look-ahead stops at it.
+  const reordered = message(
+    call('todo_write', 'finish-call', { finish: 1 }),
+    call('todo_report', 'report-before', { index: 2, inIssue: false }),
+    call('todo_write', 'reindex-call', { reorderFrom: 2, todos: ['New'] }),
+    call('todo_report', 'report-after', { index: 2, inIssue: false }),
+  );
+  assert.deepEqual([...stepReportTargets(state, reordered, 'finish-call')], ['t2']);
+  const onlyAfter = message(
+    call('todo_write', 'finish-call', { finish: 1 }),
+    call('todo_write', 'reindex-call', { reorderFrom: 2, todos: ['New'] }),
+    call('todo_report', 'report-after', { index: 2, inIssue: false }),
+  );
+  assert.equal(stepReportTargets(state, onlyAfter, 'finish-call').size, 0);
 });
 
 test('coverage separates missing and failed reports from pending reports', () => {
