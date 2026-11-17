@@ -7,6 +7,7 @@ import {
   installStepTracker,
   repeatedIssue,
   stepCoverage,
+  stepReportTargets,
   stepToolCalls,
   unreportedFinish,
 } from '../src/guard.js';
@@ -21,7 +22,12 @@ import {
   writeLedger,
 } from '../src/ledger.js';
 
-const call = (name, id = `${name}-call`) => ({ type: 'tool-call', id, name, arguments: '{}' });
+const call = (name, id = `${name}-call`, args = {}) => ({
+  type: 'tool-call',
+  id,
+  name,
+  arguments: JSON.stringify(args),
+});
 const message = (...calls) => ({ content: calls });
 const execution = (rootCallId, name = 'bash', callId = rootCallId) => ({ rootCallId, name, callId });
 const ptcExecution = (rootCallId, name, dispatch = 1) => ({
@@ -124,6 +130,64 @@ test('work requires an in-progress main task', () => {
   const step = message(call('todo_report'), call('bash'));
   assert.match(stepCoverage(emptyLedger(), step, execution('bash-call')).reason, /没有进行中的任务/);
   assert.equal(stepCoverage(reportedLedger(), step, execution('bash-call')).outcome, 'covered');
+});
+
+test('a first write later in the same step admits an action as bootstrap', () => {
+  const step = message(call('bash', 'bash-call'), call('todo_write', 'write-call', { todos: ['Task'] }));
+  assert.deepEqual(stepCoverage(emptyLedger(), step, execution('bash-call')), { outcome: 'bootstrap' });
+
+  // Without a write in the step the empty plan stays a hard violation, and a
+  // write that already ran earlier cannot admit a task-less action either.
+  assert.match(
+    stepCoverage(emptyLedger(), message(call('bash', 'bash-call')), execution('bash-call')).reason,
+    /没有进行中的任务/,
+  );
+  assert.match(
+    stepCoverage(
+      emptyLedger(),
+      message(call('todo_write', 'write-call'), call('bash', 'bash-call')),
+      execution('bash-call'),
+    ).reason,
+    /没有进行中的任务/,
+  );
+  // A later finish-only write cannot create the missing task either.
+  assert.match(
+    stepCoverage(
+      emptyLedger(),
+      message(call('bash', 'bash-call'), call('todo_write', 'write-call', { finish: 1 })),
+      execution('bash-call'),
+    ).reason,
+    /没有进行中的任务/,
+  );
+});
+
+test('stepReportTargets resolves report indices against the current plan', () => {
+  const state = startLedger(writeLedger(emptyLedger(), ['One', 'Two']).state, 1).state;
+  assert.deepEqual(
+    [...stepReportTargets(state, message(
+      call('todo_report', 'report-1', { index: 1, inIssue: false }),
+      call('todo_report', 'report-2', { index: 2, inIssue: false }),
+      call('todo_report', 'report-bad', { index: 9, inIssue: false }),
+      call('bash'),
+    ))],
+    ['t1', 't2'],
+  );
+  assert.equal(
+    stepReportTargets(emptyLedger(), message(call('todo_report', 'report-1', { index: 1 }))).size,
+    0,
+  );
+  // A look-ahead boundary excludes calls that already ran.
+  assert.deepEqual(
+    [...stepReportTargets(
+      state,
+      message(
+        call('todo_report', 'report-1', { index: 1, inIssue: false }),
+        call('todo_report', 'report-2', { index: 2, inIssue: false }),
+      ),
+      'report-1',
+    )],
+    ['t2'],
+  );
 });
 
 test('coverage separates missing and failed reports from pending reports', () => {
@@ -341,6 +405,43 @@ test('the first finish of an unreported task asks for confirmation', () => {
   // The second attempt is the explicit declaration of a no-action output task.
   assert.equal(h.run('todo_write-call', 'todo_write', 'todo_write-call', finish), undefined);
   assert.equal(h.warnings.length, 0);
+});
+
+test('a report later in the same step satisfies the finish confirmation', () => {
+  const h = guardHarness(inProgressLedger());
+  h.setStep(message(
+    call('todo_write', 'write-call', { finish: 1 }),
+    call('todo_report', 'report-call', { index: 1, inIssue: false }),
+  ));
+  assert.equal(h.run('write-call', 'todo_write', 'write-call', { finish: 1 }), undefined);
+  assert.equal(h.warnings.length, 0);
+});
+
+test('a report that already ran does not satisfy the finish confirmation', () => {
+  const h = guardHarness(inProgressLedger());
+  h.setStep(message(
+    call('todo_report', 'report-call', { index: 1, inIssue: false }),
+    call('todo_write', 'write-call', { finish: 1 }),
+  ));
+  // The earlier report has no effect on the state, so it must have failed; only
+  // a report that is still ahead of the finish can be looked up.
+  assert.match(
+    h.run('write-call', 'todo_write', 'write-call', { finish: 1 }),
+    /没有任何 todo_report/,
+  );
+});
+
+test('a report for another task does not satisfy the finish confirmation', () => {
+  const state = startLedger(writeLedger(emptyLedger(), ['One', 'Two']).state, 1).state;
+  const h = guardHarness(state);
+  h.setStep(message(
+    call('todo_write', 'write-call', { finish: 1 }),
+    call('todo_report', 'report-call', { index: 2, inIssue: false }),
+  ));
+  assert.match(
+    h.run('write-call', 'todo_write', 'write-call', { finish: 1 }),
+    /没有任何 todo_report/,
+  );
 });
 
 test('a report makes the finish confirmation unnecessary', () => {

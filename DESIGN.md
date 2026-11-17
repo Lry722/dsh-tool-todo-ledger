@@ -19,8 +19,8 @@
 - **前置审查**：`todo_write` 追加或重排规划时，由独立无状态模型依据 DSH 当前生效的 `AGENTS.md` 指令审查待写入内容。审查走当前会话的模型路由，只纳入当前 surface 中来源为 `agent-instructions` 的内容。审查完成后才继续本次写入，违规则返回明确提示但不阻塞。审查技术失败时不向主会话报告，写入照常继续。仅修改任务状态时不触发审查。对于简单任务用户可能不希望开启该功能，提供一级 UI，方便切换开关状态。
 - **增量维护**：已完成任务只增不删，历史记录只读不可变。只有未开始或尚未完成的任务允许通过显式重排进行作废处理。
 - **原子写入**：`todo_write` 是唯一的规划与状态写入口，可在一次调用中依次完成旧任务、修改规划和启动新任务。所有操作校验成功后才追加事件，避免产生部分成功状态。
-- **显式流转**：通过 `todo_write` 的 `finish` 参数完成当前任务，并由工具自动启动下一个待处理任务，不允许静默跳过任务。目标确实变化时，通过同一工具重排当前规划。`finish` 前该 task 必须已有 `todo_report`；没有任何上报的首次 `finish` 会被 guard 拒绝并要求确认，模型必须区分“仅输出结论的收尾任务”与“前提已失效、应重排作废的 task”。
-- **执行上报与渐进覆盖**：每次执行具体动作的 step 必须声明当前目标及 issue 状态。没有进行中的顶层任务时，插件直接拒绝动作工具；缺少 `todo_report` 时消耗豁免预算并 steer 警告，上报未成功记录时静默消耗预算，预算耗尽后才拒绝该 step 的动作工具。豁免 step 沿用最后一次有效 report。仅调用 `todo_write` / `todo_read` 的 step 不受此限制。`todo_report` 的调用位置和次数大多不受约束：重复调用或排在动作工具之后都不会被拦截，排在其后的上报按临时覆盖放行，是否成功写入账本由后续 step 继续校验；单独调用仍会被拒绝，避免模型养成单独上报的习惯、额外增加请求。
+- **显式流转**：通过 `todo_write` 的 `finish` 参数完成当前任务，并由工具自动启动下一个待处理任务，不允许静默跳过任务。目标确实变化时，通过同一工具重排当前规划。`finish` 前该 task 必须已有 `todo_report`；同一次回复中与 `finish` 并存的 `todo_report` 也计入，即使它在调用列表中排在 `finish` 之后。没有任何上报的首次 `finish` 会被 guard 拒绝并要求确认，模型必须区分“仅输出结论的收尾任务”与“前提已失效、应重排作废的 task”。
+- **执行上报与渐进覆盖**：每次执行具体动作的 step 必须声明当前目标及 issue 状态。没有进行中的顶层任务时，插件直接拒绝动作工具；但同一 step 中若存在 `todo_write`（包括排在动作之后的首次写入），动作按 bootstrap 临时放行，下一 step 再以持久化后的账本重新校验。缺少 `todo_report` 时消耗豁免预算并 steer 警告，上报未成功记录时静默消耗预算，预算耗尽后才拒绝该 step 的动作工具。豁免 step 沿用最后一次有效 report。仅调用 `todo_write` / `todo_read` 的 step 不受此限制。`todo_report` 的调用位置和次数大多不受约束：重复调用或排在动作工具之后都不会被拦截，排在其后的上报按临时覆盖放行，是否成功写入账本由后续 step 继续校验；单独调用仍会被拒绝，避免模型养成单独上报的习惯、额外增加请求。
 - **两层任务结构**：任务树最大深度为 2，即“顶层任务 → issue”。处理 issue 时出现的新工作必须先提升为顶层任务，不能继续向下嵌套。
 
 ## 基本概念
@@ -57,7 +57,7 @@ issue 展示按任务与 issue 名称聚合同名上报，只区分“当前 iss
 
 本文中的 **step** 指一次 assistant step。
 
-“并行调用 `todo_report`”指模型在同一个 assistant step 中，在发起其他动作的同时一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，工具在实际运行时可以串行执行。覆盖校验不要求 `todo_report` 排在其它动作工具之前：只要同一个 assistant message 中出现 `todo_report` 即视为上报尝试，排在动作之后、尚未执行的上报按临时覆盖放行，后续 step 再校验它是否成功写入账本。
+“并行调用 `todo_report`”指模型在同一个 assistant step 中，在发起其他动作的同时一并发起 `todo_report` 工具调用。它描述的是工具调用在同一次模型输出中的组织方式，工具在实际运行时按调用列表串行执行。覆盖校验不要求 `todo_report` 排在其它动作工具之前：只要同一个 assistant message 中出现 `todo_report` 即视为上报尝试，排在动作之后、尚未执行的上报按临时覆盖放行，后续 step 再校验它是否成功写入账本。`finish` 与 `todo_report` 的相对顺序同样不构成结构错误：`finish` 的确认检查会预读同一 message 中指向该 task 的 `todo_report`，而 `finish` 之后才执行到的上报按该 task 的收尾上报写入账本。
 
 turn 的最终回复不需要调用 `todo_report`。
 
@@ -130,7 +130,7 @@ turn 的最终回复不需要调用 `todo_report`。
 
 每个 agent 注册一个工具 guard。guard 在该 step 的工具执行前读取当前 `todoLedger` 投影与该 step 的 assistant message，并对每个非豁免调用做以下校验：
 
-1. 当前规划中存在 `in_progress` 顶层任务。没有时，模型必须先通过 `todo_write` 创建并启动任务；`todo_write` / `todo_read` 仍可调用。
+1. 当前规划中存在 `in_progress` 顶层任务。没有时，模型必须先通过 `todo_write` 创建并启动任务；`todo_write` / `todo_read` 仍可调用。若同一个 assistant message 中排在当前动作之后、且带有非空 `todos` 的 `todo_write` 尚未执行，本 step 的动作按 bootstrap 临时放行，不消耗豁免预算；下一 step 仍无进行中任务时再按普通硬性拒绝处理。已经执行过的 `todo_write` 或只做 `finish` 的写入不会为后续动作补发这种放行，避免在计划已结束或写入失败后继续执行动作。
 2. assistant message 中除 `todo_report` 外至少包含一条其他工具调用；整批只有 `todo_report` 的 message 会被拒绝，避免每步额外产生一次上报请求。
 3. assistant message 中至少有一条 `todo_report`，位置与数量不限；多条时任一成功写入账本即算覆盖。该上报需已成功写入账本（当前任务的最新 report call ID 等于该调用的 ID）。排在当前动作之后的上报尚未执行，按临时覆盖放行，不消耗预算；由后续 step 校验它是否成功记录：下一个动作 step 开始时账本仍没有新增 report，则本次临时覆盖视为失败，该动作按未覆盖处理并消耗预算。缺少这层校验时，一个始终失败的上报会让每个 step 重新获得临时覆盖，预算永不耗尽，guard 也就无法拦截。
 
@@ -147,7 +147,9 @@ turn 的最终回复不需要调用 `todo_report`。
 
 延续同一个 active issue 时重复提供 `issue` 名称同样不算结构错误，但会浪费上下文。guard 检测到本次上报的名称与上一次相同后，steer 一次提醒省略 `issue`、只保留 `inIssue: true`，上报本身照常放行。同一 issue 的连续重复只提醒一次；模型改为省略名称（或切换、离开 issue）后提醒重新武装，后续再次重复时重新提醒。
 
-`todo_write` 的 `finish` 另有结构确认：目标 task 没有任何 `todo_report` 时，首次 `finish` 被拒绝并返回提示，模型可选择用 `reorderFrom` 作废被证伪的 task，或再次 `finish` 同一 task 确认它是无需工具动作、只输出最终结论的收尾任务。确认状态按 task 的稳定 ID 记录，不会因序号复用或重排误放行其他 task。
+`todo_write` 的 `finish` 另有结构确认：目标 task 没有任何 `todo_report` 时，首次 `finish` 被拒绝并返回提示，模型可选择用 `reorderFrom` 作废被证伪的 task，或再次 `finish` 同一 task 确认它是无需工具动作、只输出最终结论的收尾任务。确认状态按 task 的稳定 ID 记录，不会因序号复用或重排误放行其他 task。确认检查会预读同一 assistant message 中排在 `finish` 之后、指向该 task 的 `todo_report`：该上报尚未执行，视为即将落库，不再要求二次确认。已经执行过但未成功写入账本的上报不算，避免一次失败的上报让 finish 绕过确认。
+
+上报按执行顺序写入账本。`finish` 之后才执行到的 `todo_report` 会看到 task 已 `completed`；只要该 `finish` 发生在当前 step（用 `tool/call` 的 turn/step 判定，PTC 子调用共用外层 `run_code` 的 step），账本仍接受该上报并将其记为已完成 task 的收尾上报，不报“任务不是进行中”。这类补报不改变当前 issue 的归属，也不能用于覆盖后续动作 step。来自更晚 step 的补报仍会被拒绝，模型应上报当前进行中的 task。
 
 guard 借助 `rootCallId` 把 PTC 子调用归属到外层 `run_code`，并按程序而不是按 assistant message 校验：
 

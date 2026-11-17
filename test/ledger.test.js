@@ -103,6 +103,18 @@ function turnEvent(state, seq, type, turn) {
   });
 }
 
+function toolCallEvent(state, seq, callId, turn, step) {
+  return foldLedgerEvent(state, {
+    type: 'tool/call',
+    ...at(seq),
+    data: {
+      callId,
+      ...(turn === undefined ? {} : { turn }),
+      ...(step === undefined ? {} : { step }),
+    },
+  });
+}
+
 test('append assigns stable ids and current indices', () => {
   const result = writeLedger(emptyLedger(), ['First', 'Second']);
   assert.deepEqual(result.added, [
@@ -147,6 +159,39 @@ test('finish auto-starts the next pending task', () => {
     { index: 2, content: 'Implement ledger', status: 'in_progress' },
     { index: 3, content: 'Add tests', status: 'pending' },
   ]);
+});
+
+test('a report after the finish in the same step records the finished task', () => {
+  let state = startEvent(planned(), 1, 1);
+  state = toolCallEvent(state, 2, 'finish-call', 4, 2);
+  state = finishEvent(state, 3, 1);
+  state = startEvent(state, 4, 2, 'finish-call');
+
+  // PTC sub-calls share the outer run_code tool call, so the report sees the
+  // same step without any new tool/call event of its own.
+  const sameProgram = reportLedger(state, 1, false);
+  assert.equal(sameProgram.state.nodes[0].reports.length, 1);
+  assert.equal(sameProgram.state.lastReportTaskId, 't1');
+  assert.deepEqual(currentView(sameProgram.state).tasks[0], {
+    index: 1,
+    content: 'Confirm requirements',
+    status: 'completed',
+  });
+
+  // Native call order logs one tool/call per call, still inside the same step.
+  const native = reportLedger(toolCallEvent(state, 5, 'report-call', 4, 2), 1, false);
+  assert.equal(native.state.nodes[0].reports.length, 1);
+
+  // From a later step a completed task is no longer an accepted target.
+  const later = toolCallEvent(native.state, 6, 'later-call', 4, 3);
+  assert.throws(
+    () => reportLedger(later, 1, false),
+    ledgerMessage('reportInactiveTask', {
+      index: 1,
+      status: 'completed',
+      active: '2「Implement ledger」',
+    }),
+  );
 });
 
 test('composite updates finish and reorder in a fixed order', () => {

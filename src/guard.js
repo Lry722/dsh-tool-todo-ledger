@@ -10,6 +10,46 @@ export function stepToolCalls(message) {
   return message?.content?.filter((block) => block.type === 'tool-call') ?? [];
 }
 
+function callArguments(call) {
+  const raw = call?.arguments;
+  if (raw !== null && typeof raw === 'object') return raw;
+  if (typeof raw !== 'string' || raw.length === 0) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch (_error) {
+    return undefined;
+  }
+}
+
+/**
+ * Task ids addressed by `todo_report` calls in this assistant step. With an
+ * `afterCallId`, only calls listed after it are considered: such a report has
+ * not run yet, so a finish can look forward to it. Reports that already ran are
+ * judged by the ledger instead, because they may have failed.
+ * @param state - the current `todoLedger` projection.
+ * @param message - the assistant message that requested this step's tool calls.
+ * @param afterCallId - optional call id that bounds the look-ahead.
+ * @returns the set of targeted task ids.
+ */
+export function stepReportTargets(state, message, afterCallId) {
+  const targets = new Set();
+  if (!Array.isArray(state?.currentIds)) return targets;
+  const calls = stepToolCalls(message);
+  let start = 0;
+  if (afterCallId !== undefined) {
+    const boundary = calls.findIndex((call) => call.id === afterCallId);
+    if (boundary < 0) return targets;
+    start = boundary + 1;
+  }
+  for (const call of calls.slice(start)) {
+    if (call.name !== 'todo_report') continue;
+    const index = callArguments(call)?.index;
+    if (!Number.isInteger(index) || index < 1 || index > state.currentIds.length) continue;
+    targets.add(state.currentIds[index - 1]);
+  }
+  return targets;
+}
+
 export function inProgressTask(state) {
   if (!state || !Array.isArray(state.currentIds)) return undefined;
   for (const id of state.currentIds) {
@@ -159,7 +199,10 @@ export function isPtcDispatch(execution) {
  * that appears after the guarded action has not run yet, so the action is
  * admitted provisionally and later steps judge whether it was recorded. A report
  * without any action tool is still rejected; missing or failed reports are
- * exemptible, and plans without an active task stay hard violations.
+ * exemptible. A plan without an active task stays a hard violation, except when
+ * a `todo_write` later in the same step may still create and start the first
+ * task after this action runs, so the action is admitted as a bootstrap and the
+ * following step re-checks the now-persisted plan.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's tool calls.
  * @param execution - the execution being guarded; `rootCallId` identifies the
@@ -195,8 +238,19 @@ export function stepCoverage(state, message, execution) {
     return { outcome: 'exempt' };
   }
 
+  const rootIndex = calls.indexOf(root);
   const task = inProgressTask(state);
   if (!task) {
+    // The first plan may be written later in this same step. A write that
+    // already ran earlier cannot help: it would have started the task or
+    // finished the plan, so admitting the action then is unsafe. A later write
+    // only bootstraps here when it actually adds tasks.
+    const bootstrap = calls.some((call, index) => {
+      if (index <= rootIndex || call.name !== 'todo_write') return false;
+      const tasks = callArguments(call)?.todos;
+      return Array.isArray(tasks) && tasks.length > 0;
+    });
+    if (bootstrap) return { outcome: 'bootstrap' };
     return { outcome: 'blocked', reason: GUARD_MESSAGES.noActiveTask };
   }
 
@@ -206,7 +260,6 @@ export function stepCoverage(state, message, execution) {
     return { outcome: 'covered' };
   }
 
-  const rootIndex = calls.indexOf(root);
   // A report later in the same message cannot be recorded yet; let the action run
   // and verify the report in the following step instead of rejecting the whole step.
   if (reports.some((report) => calls.indexOf(report) > rootIndex)) {
@@ -312,7 +365,11 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
     // Hard blocks and recorded/pending reports never depend on the budget or
     // on an earlier admission cached for this message.
     if (coverage.outcome === 'blocked') return coverage.reason;
-    if (coverage.outcome === 'covered' || coverage.outcome === 'provisional') return undefined;
+    if (
+      coverage.outcome === 'covered'
+      || coverage.outcome === 'provisional'
+      || coverage.outcome === 'bootstrap'
+    ) return undefined;
     // An assistant message may spend at most one admission. Later uncovered
     // actions reuse it, including a denial, without steering again.
     if (memory.step.message !== message) {
@@ -433,7 +490,13 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
           if (task?.status !== 'in_progress') memory.finish.delete(id);
         }
         const unreported = unreportedFinish(state, execution);
-        if (unreported && !memory.finish.delete(unreported.taskId)) {
+        // A report later in the same step counts: it will run after this finish,
+        // and the ledger accepts it as the finished task's closing report.
+        if (
+          unreported
+          && !memory.finish.delete(unreported.taskId)
+          && !stepReportTargets(state, message, execution.rootCallId).has(unreported.taskId)
+        ) {
           memory.finish.add(unreported.taskId);
           return fillPrompt(GUARD_MESSAGES.unreportedFinish, { index: unreported.index });
         }

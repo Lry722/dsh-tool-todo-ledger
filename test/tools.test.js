@@ -35,6 +35,11 @@ function harness({
   let seq = 0;
   let reviewCalls = 0;
   const appended = [];
+  const recordEvent = (event) => {
+    appended.push(event);
+    state = foldLedgerEvent(state, event);
+    history = recordHistoryEvent(history, event);
+  };
   const execSignal = signal ?? new AbortController().signal;
   const messages = instructions.map((text) => ({
     role: 'user',
@@ -68,10 +73,7 @@ function harness({
       deriveMessages: () => messages,
       requestHeader: () => ({ config: { provider: 'test', model: 'test' } }),
       append(type, data) {
-        const event = { type, data, seq: ++seq, time: seq * 100 };
-        appended.push(event);
-        state = foldLedgerEvent(state, event);
-        history = recordHistoryEvent(history, event);
+        recordEvent({ type, data, seq: ++seq, time: seq * 100 });
       },
     },
   };
@@ -85,6 +87,11 @@ function harness({
     state: () => state,
     setEnabled(value) { current = value; },
     reviewCalls() { return reviewCalls; },
+    // Mirror the agent loop: every model-requested call logs tool/call before
+    // its tool body appends ledger operations.
+    beginCall(callId, turn = 1, step = 1) {
+      recordEvent({ type: 'tool/call', data: { callId, turn, step }, seq: ++seq, time: seq * 100 });
+    },
     exec: { agent, callId: 'call-1', signal: execSignal },
   };
 }
@@ -203,6 +210,29 @@ test('initial creation auto-starts a task that can be reported', async () => {
   assert.deepEqual(created.started, { content: 'Task' });
   const reported = await env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec);
   assert.deepEqual(reported, {});
+});
+
+test('a report that runs after its finish in the same step is recorded', async () => {
+  const env = harness();
+  await env.tools.todo_write.execute({ todos: ['One', 'Two'] }, env.exec);
+
+  // Finish first, then report the finished task: both calls still share one
+  // assistant step, so the late report closes out that task instead of failing.
+  env.beginCall('finish-call', 2, 1);
+  const finished = await env.tools.todo_write.execute(
+    { finish: 1 },
+    { ...env.exec, callId: 'finish-call' },
+  );
+  assert.deepEqual(finished.finished, { content: 'One' });
+  assert.deepEqual(finished.started, { content: 'Two' });
+
+  env.beginCall('report-call', 2, 1);
+  const reported = await env.tools.todo_report.execute(
+    { index: 1, inIssue: false },
+    { ...env.exec, callId: 'report-call' },
+  );
+  assert.deepEqual(reported, {});
+  assert.equal(env.state().nodes[0].reports.length, 1);
 });
 
 test('review warnings are returned while technical failures stay invisible', async () => {

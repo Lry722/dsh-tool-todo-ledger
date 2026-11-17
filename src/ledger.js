@@ -350,6 +350,20 @@ export function updateLedger(state, args) {
   return { state: next, operations, finished, write, started };
 }
 
+/**
+ * Whether `task` was completed by a finish in the model step that is still
+ * current. Tool calls in one assistant step execute in model order, so a report
+ * listed after its finish runs only once the task is already completed. The
+ * report still describes that task's final work; call-list order is not
+ * protocol-meaningful, so it is accepted instead of demanding a new target.
+ * A report from any later step must still address the active task.
+ */
+function finishedInCurrentStep(state, task) {
+  if (task.status !== 'completed') return false;
+  if (!Number.isInteger(task.finishTurn) || !Number.isInteger(task.finishStep)) return false;
+  return task.finishTurn === state.lastToolCallTurn && task.finishStep === state.lastToolCallStep;
+}
+
 export function reportLedger(state, index, inIssue, rawIssue) {
   const { id, task } = taskAt(state, index, 'todo_report');
   if (typeof inIssue !== 'boolean') throw ledgerError('inIssueBoolean');
@@ -367,13 +381,16 @@ export function reportLedger(state, index, inIssue, rawIssue) {
   if (!inIssue && issue !== undefined) {
     throw ledgerError('issueOmitted');
   }
-  if (task.status !== 'in_progress') {
+  const lateFinish = finishedInCurrentStep(state, task);
+  if (task.status !== 'in_progress' && !lateFinish) {
     const active = inProgressEntry(state);
     throw active
       ? ledgerError('reportInactiveTask', { index, status: task.status, active: taskReference(active) })
       : ledgerError('reportNoActiveTask', { index, status: task.status });
   }
-  if (state.lastReportTaskId !== null && state.lastReportTaskId !== id) {
+  // A late report closes out the task that finish just completed; it is not a
+  // target switch, so the active task's continuation target must not block it.
+  if (!lateFinish && state.lastReportTaskId !== null && state.lastReportTaskId !== id) {
     const previous = state.nodes.find((node) => node.id === state.lastReportTaskId);
     if (previous && previous.status !== 'completed') {
       const active = { index: state.currentIds.indexOf(previous.id) + 1, task: previous };
@@ -453,9 +470,16 @@ export function foldLedgerEvent(state, event) {
   if (event.type === 'turn/end') return closeCurrentTurn(state, event);
   if (event.type === 'tool/call' && typeof event.data?.callId === 'string') {
     if (state.lastToolCallId === event.data.callId) return state;
-    // Shallow copy: the view ignores lastToolCallId, so the projection can share
-    // nodes/currentIds/turns and reuse the cached view object.
-    return { ...state, lastToolCallId: event.data.callId };
+    // Shallow copy: the view ignores the tool-call fields, so the projection can
+    // share nodes/currentIds/turns and reuse the cached view object. The step is
+    // kept so a report that runs after its finish in the same model step can
+    // still be attributed to the task that finish completed.
+    return {
+      ...state,
+      lastToolCallId: event.data.callId,
+      ...(Number.isInteger(event.data.turn) ? { lastToolCallTurn: event.data.turn } : {}),
+      ...(Number.isInteger(event.data.step) ? { lastToolCallStep: event.data.step } : {}),
+    };
   }
   if (event.type !== 'todo/write' || !event.data || !Array.isArray(event.data.todos)) return state;
   const operation = event.data.ledger;
@@ -492,6 +516,14 @@ export function foldLedgerEvent(state, event) {
     if (operation.operation === 'start' && typeof callId === 'string') {
       task.startCallId = callId;
       task.startSeq = event.seq;
+    }
+    if (operation.operation === 'finish') {
+      // PTC sub-calls share the outer `run_code` tool call, so this also scopes
+      // a late report to the program that finished the task.
+      if (Number.isInteger(state.lastToolCallTurn) && Number.isInteger(state.lastToolCallStep)) {
+        task.finishTurn = state.lastToolCallTurn;
+        task.finishStep = state.lastToolCallStep;
+      }
     }
     return next;
   }

@@ -85,10 +85,16 @@ const ledgerStateSchema = zod.object({
     reports: zod.array(reportSchema),
     startCallId: zod.string().optional(),
     startSeq: zod.number().optional(),
+    // Completion metadata scopes a late report to the step that finished the
+    // task; older sessions simply lack it and keep rejecting those reports.
+    finishTurn: zod.number().int().nonnegative().optional(),
+    finishStep: zod.number().int().nonnegative().optional(),
   })),
   currentIds: zod.array(zod.string()),
   lastReportTaskId: zod.string().nullable(),
   lastToolCallId: zod.string().nullable(),
+  lastToolCallTurn: zod.number().int().nonnegative().optional(),
+  lastToolCallStep: zod.number().int().nonnegative().optional(),
   currentTurn: zod.number().int().nonnegative(),
   turns: zod.array(zod.object({
     turn: zod.number().int().nonnegative(),
@@ -109,7 +115,7 @@ export function apply(ctx, config) {
     init: emptyLedger,
     apply: foldLedgerEvent,
     wire: { viewSchema: todoViewSchema, view: ledgerView },
-    stateVersion: 8,
+    stateVersion: 9,
   });
   ctx.sessionProjections.register(historyProjection());
   const stepOf = installStepTracker(ctx);
