@@ -14,9 +14,33 @@ import { TOOL_MESSAGES, TOOL_PROMPTS, fillPrompt } from './prompts.js';
 import { callArguments, callPosition, stepToolCalls } from './step.js';
 
 const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
+export const ACTIVE_TASK_REMINDER_MS = 60 * 1000;
 // Exports are private temporary files; remove them even when the caller never
 // deletes the returned path. The timer is unref'd so it cannot hold the host open.
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * `todo_report` normally returns nothing. Once per real minute it also names the
+ * active task, so a long stretch of work cannot keep reporting a target that was
+ * already finished without the model being reminded to switch. The window starts
+ * when the tool set is created and restarts whenever a reminder is emitted.
+ * @param options - `now` overrides the clock for tests.
+ * @returns a function that returns `{ content }` when a reminder is due.
+ */
+export function createActiveTaskReminder({ intervalMs = ACTIVE_TASK_REMINDER_MS, now = Date.now } = {}) {
+  let remindedAt = now();
+  return (state) => {
+    const at = now();
+    if (at - remindedAt < intervalMs) return undefined;
+    for (const id of state.currentIds) {
+      const task = state.nodes.find((node) => node.id === id);
+      if (task?.status !== 'in_progress') continue;
+      remindedAt = at;
+      return { content: task.content };
+    }
+    return undefined;
+  };
+}
 
 export function scheduleExportCleanup(directory, ttlMs = EXPORT_TTL_MS) {
   setTimeout(() => {
@@ -120,7 +144,8 @@ async function exportHistory(ctx, agent) {
   return { path, eventCount: events.length };
 }
 
-export function createLedgerTools(ctx, stepOf) {
+export function createLedgerTools(ctx, stepOf, options) {
+  const remindActiveTask = createActiveTaskReminder(options);
   // Reports that name a task a later write in the same step has not created yet.
   // Each intent is already validated against the projected plan; it is appended
   // only after that write lands. A tool set belongs to one agent and an agent
@@ -269,8 +294,8 @@ export function createLedgerTools(ctx, stepOf) {
             return { deferred: true };
           }
         }
-        recordReport(exec, state, args.index, args.inIssue, args.issue, String(exec.callId));
-        return {};
+        const result = recordReport(exec, state, args.index, args.inIssue, args.issue, String(exec.callId));
+        return remindActiveTask(result.state) ?? {};
       },
       presentCall: presentation(TOOL_MESSAGES.presentation.todo_report),
     }),

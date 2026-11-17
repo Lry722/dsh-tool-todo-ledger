@@ -20,7 +20,7 @@ function ledgerMessage(key, values) {
   return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
 }
 
-function harness({ signal, stateAvailable = true, step } = {}) {
+function harness({ signal, stateAvailable = true, step, now } = {}) {
   let state = emptyLedger();
   let history = emptyHistory();
   let currentStep = step;
@@ -49,7 +49,7 @@ function harness({ signal, stateAvailable = true, step } = {}) {
     },
   };
   const tools = Object.fromEntries(
-    createLedgerTools(ctx, () => currentStep).map((tool) => [tool.name, tool]),
+    createLedgerTools(ctx, () => currentStep, { now }).map((tool) => [tool.name, tool]),
   );
   return {
     tools,
@@ -175,6 +175,67 @@ test('initial creation auto-starts a task that can be reported', async () => {
   const created = await env.tools.todo_write.execute({ todos: ['Task'] }, env.exec);
   assert.deepEqual(created.started, { content: 'Task' });
   const reported = await env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec);
+  assert.deepEqual(reported, {});
+});
+
+test('todo_report names the active task once per real minute', async () => {
+  const clock = { now: 1_000 };
+  const env = harness({ now: () => clock.now });
+  await env.tools.todo_write.execute({ todos: ['One'] }, env.exec);
+  const report = () => env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec);
+
+  assert.deepEqual(await report(), {});
+  clock.now += 59_999;
+  assert.deepEqual(await report(), {});
+  clock.now += 1;
+  assert.deepEqual(await report(), { content: 'One' });
+  // The window rolls from the last reminder, so the next one is due a minute
+  // later rather than on the next wall-clock minute.
+  clock.now += 30_000;
+  assert.deepEqual(await report(), {});
+  clock.now += 30_000;
+  assert.deepEqual(await report(), { content: 'One' });
+});
+
+test('the periodic reminder follows the active task after a finish', async () => {
+  const clock = { now: 0 };
+  const env = harness({ now: () => clock.now });
+  await env.tools.todo_write.execute({ todos: ['One', 'Two'] }, env.exec);
+
+  clock.now = 60_000;
+  assert.deepEqual(
+    await env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec),
+    { content: 'One' },
+  );
+
+  // A report that runs after its finish closes out One, but the reminder must
+  // name the task that finish already started instead of the reported one.
+  env.beginCall('finish-call', 2, 1);
+  await env.tools.todo_write.execute({ finish: 1 }, { ...env.exec, callId: 'finish-call' });
+  env.beginCall('report-call', 2, 1);
+  clock.now = 120_000;
+  assert.deepEqual(
+    await env.tools.todo_report.execute(
+      { index: 1, inIssue: false },
+      { ...env.exec, callId: 'report-call' },
+    ),
+    { content: 'Two' },
+  );
+});
+
+test('no reminder is attached when no task is active', async () => {
+  const clock = { now: 0 };
+  const env = harness({ now: () => clock.now });
+  await env.tools.todo_write.execute({ todos: ['Only'] }, env.exec);
+
+  env.beginCall('finish-call', 2, 1);
+  await env.tools.todo_write.execute({ finish: 1 }, { ...env.exec, callId: 'finish-call' });
+  env.beginCall('report-call', 2, 1);
+  clock.now = 60_000;
+  const reported = await env.tools.todo_report.execute(
+    { index: 1, inIssue: false },
+    { ...env.exec, callId: 'report-call' },
+  );
   assert.deepEqual(reported, {});
 });
 
