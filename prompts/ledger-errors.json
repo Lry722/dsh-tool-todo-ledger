@@ -13,7 +13,7 @@
   "operationRequired": "todo_write: 请提供 todos、reorderFrom 或 finish",
   "inIssueBoolean": "todo_report: `inIssue` 必须是布尔值",
   "issueString": "todo_report: `issue` 必须为非空字符串",
-  "issueRequired": "todo_report: 进入 issue 时必须提供 `issue`",
+  "issueRequired": "todo_report:进入 issue（inIssue 切换到 true）时必须提供一次 `issue`",
   "issueOmitted": "todo_report: 当 `inIssue` 为 false 时请省略 `issue`",
   "reportInactiveTask": "todo_report: 任务 {{index}} 当前状态为 {{status}}，请先完成进行中的任务 {{active}}",
   "reportNoActiveTask": "todo_report: 任务 {{index}} 当前状态为 {{status}}，当前没有进行中的任务，请先调用 todo_write",
