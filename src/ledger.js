@@ -146,7 +146,7 @@ export function legacyTodos(state) {
   });
 }
 
-function activeIssue(state, taskId) {
+export function activeIssue(state, taskId) {
   if (state.lastReportTaskId !== taskId) return undefined;
   const task = nodeById(state, taskId);
   if (task?.status !== 'in_progress') return undefined;

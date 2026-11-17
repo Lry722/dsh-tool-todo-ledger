@@ -14,7 +14,7 @@
     }
   },
   "todo_report": {
-    "description": "上报当前 task 和 issue。在调用任何其他工具时，必须同时进行 todo_report，否则任何其他工具调用都会被拒绝，调用仅包含 todo 工具或最终回复时例外。同一次回复中，finish 之后才执行到的上报仍按该 task 的收尾上报接受。工具结果每隔约一分钟会附带一次 `content`，说明当前进行中的 task，提醒检查是否该切换目标。",
+    "description": "上报当前 task 和 issue。在调用任何其他工具时，必须同时进行 todo_report，否则任何其他工具调用都会被拒绝，调用仅包含 todo 工具或最终回复时例外。同一次回复中，finish 之后才执行到的上报仍按该 task 的收尾上报接受。工具结果每隔约一分钟会附带一次提醒：当前进行中的 task 的 `content`；若该 task 有 active issue，还会附带 `issue`。请据此检查是否该切换目标。",
     "parameters": {
       "index": "进行中 task 的序号；也可以引用同一次回复中随后 todo_write 才追加的新 task。",
       "inIssue": "在执行当前任务时，只要遇到一个计划外的多步骤临时问题，就应当输出 true，且处理问题期间持续输出 true。包括但不限于测试失败、缺陷定位、环境问题、资料查找等。若正在精确执行当前任务，没有额外问题，则输出 false。",

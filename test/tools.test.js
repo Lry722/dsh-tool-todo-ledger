@@ -223,6 +223,33 @@ test('the periodic reminder follows the active task after a finish', async () =>
   );
 });
 
+test('the periodic reminder also names the active issue', async () => {
+  const clock = { now: 0 };
+  const env = harness({ now: () => clock.now });
+  await env.tools.todo_write.execute({ todos: ['One'] }, env.exec);
+  await env.tools.todo_report.execute({ index: 1, inIssue: true, issue: 'Local' }, env.exec);
+
+  clock.now = 60_000;
+  assert.deepEqual(
+    await env.tools.todo_report.execute({ index: 1, inIssue: true }, env.exec),
+    { content: 'One', issue: 'Local' },
+  );
+
+  // Leaving the issue clears it from the reminder as well.
+  clock.now = 120_000;
+  assert.deepEqual(
+    await env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec),
+    { content: 'One' },
+  );
+
+  // A newly opened issue is named by the next reminder.
+  clock.now = 180_000;
+  assert.deepEqual(
+    await env.tools.todo_report.execute({ index: 1, inIssue: true, issue: 'Next' }, env.exec),
+    { content: 'One', issue: 'Next' },
+  );
+});
+
 test('no reminder is attached when no task is active', async () => {
   const clock = { now: 0 };
   const env = harness({ now: () => clock.now });

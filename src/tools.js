@@ -5,6 +5,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import { HISTORY_PROJECTION_KEY } from './history.js';
 import {
   LEDGER_VERSION,
+  activeIssue,
   currentView,
   legacyTodos,
   reportLedger,
@@ -21,11 +22,12 @@ const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * `todo_report` normally returns nothing. Once per real minute it also names the
- * active task, so a long stretch of work cannot keep reporting a target that was
- * already finished without the model being reminded to switch. The window starts
- * when the tool set is created and restarts whenever a reminder is emitted.
+ * active task and, when one is open there, its active issue. A long stretch of
+ * work therefore cannot keep reporting a target that was already finished
+ * without the model being reminded to switch. The window starts when the tool
+ * set is created and restarts whenever a reminder is emitted.
  * @param options - `now` overrides the clock for tests.
- * @returns a function that returns `{ content }` when a reminder is due.
+ * @returns a function that returns `{ content, issue? }` when a reminder is due.
  */
 export function createActiveTaskReminder({ intervalMs = ACTIVE_TASK_REMINDER_MS, now = Date.now } = {}) {
   let remindedAt = now();
@@ -36,7 +38,8 @@ export function createActiveTaskReminder({ intervalMs = ACTIVE_TASK_REMINDER_MS,
       const task = state.nodes.find((node) => node.id === id);
       if (task?.status !== 'in_progress') continue;
       remindedAt = at;
-      return { content: task.content };
+      const issue = activeIssue(state, task.id)?.name;
+      return { content: task.content, ...(issue === undefined ? {} : { issue }) };
     }
     return undefined;
   };
