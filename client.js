@@ -3,6 +3,8 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react');
     const {
+      Button,
+      Input,
       StateDot,
       IconChecklistOutlineRegular,
       IconChevronDownOutlineRegular,
@@ -11,6 +13,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const locale = 'todoLedger';
     const sidebarId = 'dsh-tool-todo-ledger';
+    const settingsKey = 'dsh-tool-todo-ledger#todo-ledger';
 
     const en = {
       todoTitle: 'To-dos',
@@ -37,6 +40,16 @@ window.__ModuleLoader__.load({
       jumpToStart: 'Jump to the step that started this task',
       jumpFailed: 'Could not locate the requested step',
       jumpToIssue: 'Jump to the latest step that reported {issue}',
+      settingsSummary: 'Control how often todo_report repeats the active task and issue.',
+      reminderIntervalLabel: 'Reminder interval',
+      reminderIntervalHint: 'Milliseconds between reminders that repeat the current task and issue. 0 disables reminders.',
+      settingsSave: 'Save',
+      settingsReset: 'Reset',
+      settingsSaving: 'Saving…',
+      settingsSaved: 'Saved',
+      settingsFailed: 'The Host rejected this value.',
+      settingsInvalid: 'Enter an integer of 0 or greater.',
+      settingsUnavailable: 'This setting is unavailable right now.',
     };
     const zh = {
       todoTitle: '任务',
@@ -63,6 +76,16 @@ window.__ModuleLoader__.load({
       jumpToStart: '跳转到开始此任务的步骤',
       jumpFailed: '无法定位对应步骤',
       jumpToIssue: '跳转到最近报告 {issue} 的步骤',
+      settingsSummary: '控制 todo_report 重复当前任务与 issue 的间隔。',
+      reminderIntervalLabel: '提醒间隔',
+      reminderIntervalHint: '每隔多少毫秒在 todo_report 的结果中重复当前任务与 issue；0 表示关闭提醒。',
+      settingsSave: '保存',
+      settingsReset: '重置',
+      settingsSaving: '保存中…',
+      settingsSaved: '已保存',
+      settingsFailed: 'Host 拒绝了该值。',
+      settingsInvalid: '请输入大于等于 0 的整数。',
+      settingsUnavailable: '当前无法读取该设置。',
     };
 
     const css = `
@@ -143,6 +166,15 @@ window.__ModuleLoader__.load({
       .todo-ledger-sidebar__turn-stats{display:flex;flex:1 1 auto;flex-wrap:wrap;gap:2px 10px;min-width:0}
       .todo-ledger-sidebar__open{display:inline-block;color:var(--dsw-alias-label-tertiary)}
       .todo-ledger-sidebar__empty{padding:32px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;text-align:center}
+      .todo-ledger-settings{display:flex;flex-direction:column;gap:10px;max-width:520px;padding:2px 0}
+      .todo-ledger-settings__header{display:flex;flex-direction:column;gap:2px}
+      .todo-ledger-settings__label{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px;font-weight:500}
+      .todo-ledger-settings__hint{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+      .todo-ledger-settings__row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+      .todo-ledger-settings__input{width:160px}
+      .todo-ledger-settings__notice{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+      .todo-ledger-settings__notice--saved{color:var(--dsw-alias-state-success-primary)}
+      .todo-ledger-settings__notice--failed,.todo-ledger-settings__notice--invalid{color:var(--dsw-alias-state-error-primary)}
     `;
 
     function progressLabel(todos, t) {
@@ -655,6 +687,90 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function TodoLedgerSettings({ t, view, form }) {
+      const snapshot = form?.state;
+      const [draft, setDraft] = React.useState(() => {
+        const value = snapshot?.value?.reminderIntervalMs;
+        return value === undefined ? '' : String(value);
+      });
+      const [status, setStatus] = React.useState('idle');
+      if (view === 'summary') return t('settingsSummary');
+      if (snapshot === undefined || snapshot.status !== 'ready') {
+        return h('p', { className: 'todo-ledger-settings__hint' }, t('settingsUnavailable'));
+      }
+
+      const write = async (operation) => {
+        setStatus('saving');
+        let accepted = false;
+        try {
+          accepted = await form.mutate([operation], snapshot.revision);
+        } catch (_error) {
+          accepted = false;
+        }
+        setStatus(accepted ? 'saved' : 'failed');
+      };
+
+      const save = () => {
+        const text = draft.trim();
+        const value = Number(text);
+        if (text === '' || !Number.isSafeInteger(value) || value < 0) {
+          setStatus('invalid');
+          return;
+        }
+        void write({ op: 'set', path: ['reminderIntervalMs'], value });
+      };
+
+      const reset = () => {
+        const base = snapshot.base?.reminderIntervalMs;
+        if (base !== undefined) setDraft(String(base));
+        void write({ op: 'unset', path: ['reminderIntervalMs'] });
+      };
+
+      const notices = {
+        saving: t('settingsSaving'),
+        saved: t('settingsSaved'),
+        failed: t('settingsFailed'),
+        invalid: t('settingsInvalid'),
+      };
+      return h('div', { className: 'todo-ledger-settings' },
+        h('div', { className: 'todo-ledger-settings__header' },
+          h('span', { className: 'todo-ledger-settings__label' }, t('reminderIntervalLabel')),
+          h('span', { className: 'todo-ledger-settings__hint' }, t('reminderIntervalHint')),
+        ),
+        h('div', { className: 'todo-ledger-settings__row' },
+          h(Input, {
+            type: 'number',
+            min: 0,
+            step: 1,
+            className: 'todo-ledger-settings__input',
+            value: draft,
+            disabled: !snapshot.writable || status === 'saving',
+            'aria-label': t('reminderIntervalLabel'),
+            onChange: (event) => {
+              setDraft(event.target.value);
+              setStatus('idle');
+            },
+          }),
+          h(Button, {
+            variant: 'primary',
+            disabled: !snapshot.writable || status === 'saving',
+            onClick: save,
+          }, t('settingsSave')),
+          h(Button, {
+            variant: 'outline',
+            disabled: !snapshot.writable || status === 'saving',
+            onClick: reset,
+          }, t('settingsReset')),
+        ),
+        notices[status] === undefined
+          ? null
+          : h('p', {
+            className: `todo-ledger-settings__notice todo-ledger-settings__notice--${status}`,
+            role: 'status',
+          }, notices[status]),
+      );
+    }
+
     function TodoSidebar(props) {
       return h(TodoSidebarSession, { ...props, key: props.sessionId });
     }
@@ -669,6 +785,11 @@ window.__ModuleLoader__.load({
         const uiStates = new Map();
         const t = ctx.locale.bind(locale);
         ctx.effect(() => ctx.locale.register(locale, { en, zh }));
+        ctx.effect(() => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+          name: 'plugins.row.config',
+          key: settingsKey,
+          locale,
+        }, TodoLedgerSettings)));
         ctx.effect(() => ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'todo',

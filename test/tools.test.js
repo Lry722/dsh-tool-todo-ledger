@@ -20,7 +20,7 @@ function ledgerMessage(key, values) {
   return (error) => error.message === fillPrompt(LEDGER_MESSAGES[key], values);
 }
 
-function harness({ signal, stateAvailable = true, step, now } = {}) {
+function harness({ signal, stateAvailable = true, step, now, intervalMs } = {}) {
   let state = emptyLedger();
   let history = emptyHistory();
   let currentStep = step;
@@ -49,7 +49,7 @@ function harness({ signal, stateAvailable = true, step, now } = {}) {
     },
   };
   const tools = Object.fromEntries(
-    createLedgerTools(ctx, () => currentStep, { now }).map((tool) => [tool.name, tool]),
+    createLedgerTools(ctx, () => currentStep, { now, intervalMs }).map((tool) => [tool.name, tool]),
   );
   return {
     tools,
@@ -195,6 +195,25 @@ test('todo_report names the active task once per real minute', async () => {
   assert.deepEqual(await report(), {});
   clock.now += 30_000;
   assert.deepEqual(await report(), { content: 'One' });
+});
+
+test('the reminder interval is configurable and can be disabled', async () => {
+  const clock = { now: 0, interval: 60_000 };
+  const env = harness({ now: () => clock.now, intervalMs: () => clock.interval });
+  await env.tools.todo_write.execute({ todos: ['One'] }, env.exec);
+  const report = () => env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec);
+
+  clock.now = 5_000;
+  assert.deepEqual(await report(), {});
+  // A live setting change applies to the tool set that already exists.
+  clock.interval = 5_000;
+  clock.now = 10_000;
+  assert.deepEqual(await report(), { content: 'One' });
+
+  // Zero disables the periodic reminder.
+  clock.interval = 0;
+  clock.now = 120_000;
+  assert.deepEqual(await report(), {});
 });
 
 test('the periodic reminder follows the active task after a finish', async () => {

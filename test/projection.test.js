@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { apply } from '../index.js';
+import { Config, apply } from '../index.js';
 import { HISTORY_PROJECTION_KEY } from '../src/history.js';
 import {
   LEDGER_VERSION,
@@ -50,6 +50,13 @@ function assertParses(schema, value, label) {
   const result = schema.safeParse(value);
   assert.equal(result.success, true, `${label}: ${JSON.stringify(result.error?.issues ?? result.error)}`);
 }
+
+test('plugin config exposes a live reminder interval', () => {
+  const field = Config.dict.reminderIntervalMs;
+  assert.equal(field.meta.default, 60_000);
+  assert.equal(field.meta.min, 0);
+  assert.equal(field.meta.volatile, true);
+});
 
 test('projection schemas parse empty and normal ledgers', () => {
   const projection = projectionHarness();

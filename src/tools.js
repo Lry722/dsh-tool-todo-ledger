@@ -21,19 +21,23 @@ export const ACTIVE_TASK_REMINDER_MS = 60 * 1000;
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * `todo_report` normally returns nothing. Once per real minute it also names the
- * active task and, when one is open there, its active issue. A long stretch of
- * work therefore cannot keep reporting a target that was already finished
- * without the model being reminded to switch. The window starts when the tool
- * set is created and restarts whenever a reminder is emitted.
- * @param options - `now` overrides the clock for tests.
+ * `todo_report` normally returns nothing. Once per configured interval it also
+ * names the active task and, when one is open there, its active issue. A long
+ * stretch of work therefore cannot keep reporting a target that was already
+ * finished without the model being reminded to switch. The window starts when
+ * the tool set is created and restarts whenever a reminder is emitted.
+ * @param options - `intervalMs` may be a getter for a live setting and returns
+ *   the window in milliseconds; a non-positive value disables reminders.
+ *   `now` overrides the clock for tests.
  * @returns a function that returns `{ content, issue? }` when a reminder is due.
  */
 export function createActiveTaskReminder({ intervalMs = ACTIVE_TASK_REMINDER_MS, now = Date.now } = {}) {
   let remindedAt = now();
   return (state) => {
+    const interval = typeof intervalMs === 'function' ? intervalMs() : intervalMs;
+    if (!(interval > 0)) return undefined;
     const at = now();
-    if (at - remindedAt < intervalMs) return undefined;
+    if (at - remindedAt < interval) return undefined;
     for (const id of state.currentIds) {
       const task = state.nodes.find((node) => node.id === id);
       if (task?.status !== 'in_progress') continue;

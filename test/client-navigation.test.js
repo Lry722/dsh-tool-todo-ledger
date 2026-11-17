@@ -12,6 +12,8 @@ const React = {
 };
 
 const primitives = {
+  Button: 'Button',
+  Input: 'Input',
   StateDot: () => null,
   IconChecklistOutlineRegular: () => null,
   IconChevronDownOutlineRegular: () => null,
@@ -285,4 +287,40 @@ test('per-session UI state stays bounded while browsing sessions', () => {
     }));
   }
   assert.equal(sidebar.uiStates.size, 64);
+});
+
+test('the plugin row configures the reminder interval', async () => {
+  const ctx = createContext('session-1');
+  const { apply } = definition.factory(requireModule);
+  apply(ctx);
+  const settings = ctx.registrations.find((options) => options.name === 'plugins.row.config');
+  assert.equal(settings?.key, 'dsh-tool-todo-ledger#todo-ledger');
+  assert.equal(settings.component({ t: (key) => key, view: 'summary' }), 'settingsSummary');
+
+  const writes = [];
+  const form = {
+    state: {
+      status: 'ready',
+      value: { reminderIntervalMs: 60_000 },
+      base: { reminderIntervalMs: 60_000 },
+      revision: 4,
+      writable: true,
+    },
+    async mutate(ops, revision) {
+      writes.push([ops, revision]);
+      return true;
+    },
+  };
+  const elements = elementsOf(settings.component({ t: (key) => key, view: 'page', form }));
+  assert.equal(elements.find((element) => element.type === 'Input')?.props.value, '60000');
+
+  elements.find((element) => element.children[0] === 'settingsSave').props.onClick();
+  await Promise.resolve();
+  assert.deepEqual(writes, [
+    [[{ op: 'set', path: ['reminderIntervalMs'], value: 60_000 }], 4],
+  ]);
+
+  elements.find((element) => element.children[0] === 'settingsReset').props.onClick();
+  await Promise.resolve();
+  assert.deepEqual(writes[1], [[{ op: 'unset', path: ['reminderIntervalMs'] }], 4]);
 });

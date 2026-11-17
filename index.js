@@ -2,12 +2,18 @@ import z from '@deepseek-ai/schemastery';
 import { z as zod } from 'zod';
 import { LEDGER_VERSION, emptyLedger, foldLedgerEvent, ledgerView } from './src/ledger.js';
 import { historyProjection } from './src/history.js';
-import { createLedgerTools } from './src/tools.js';
+import { ACTIVE_TASK_REMINDER_MS, createLedgerTools } from './src/tools.js';
 import { installReportGuard, installStepTracker } from './src/guard.js';
 
 export const name = 'tool-todo-ledger';
 export const inject = ['agents', 'sessionProjections', 'tools'];
-export const Config = z.object({});
+export const Config = z.object({
+  reminderIntervalMs: z.natural()
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(ACTIVE_TASK_REMINDER_MS)
+    .description('todo_report 周期性提醒当前任务与 issue 的间隔（毫秒）。0 表示关闭提醒。')
+    .volatile(),
+});
 
 const reportSchema = zod.object({
   // Legacy `localTask` reports can be replayed without an index; accepting the
@@ -108,7 +114,15 @@ const ledgerStateSchema = zod.object({
   })),
 });
 
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  // The interval is a volatile setting: reading it lazily keeps a settings edit
+  // effective without recreating the tools that already belong to an agent.
+  const reminderIntervalMs = () => {
+    const value = typeof config.reminderIntervalMs?.get === 'function'
+      ? config.reminderIntervalMs.get()
+      : config.reminderIntervalMs;
+    return value ?? ACTIVE_TASK_REMINDER_MS;
+  };
   ctx.sessionProjections.register({
     key: 'todoLedger',
     stateSchema: ledgerStateSchema,
@@ -124,7 +138,8 @@ export function apply(ctx) {
   const attach = (agent) => {
     if (attached.has(agent)) return;
     const dispose = ctx.effect(() => agent.ctx.effect(() => {
-      const registrations = createLedgerTools(ctx, stepOf).map((tool) => agent.ctx.tools.register(tool));
+      const registrations = createLedgerTools(ctx, stepOf, { intervalMs: reminderIntervalMs })
+        .map((tool) => agent.ctx.tools.register(tool));
       registrations.push(installReportGuard(ctx, agent, stepOf));
       return () => {
         for (const unregister of registrations.reverse()) unregister();
