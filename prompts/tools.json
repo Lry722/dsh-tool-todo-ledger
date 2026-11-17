@@ -1,10 +1,10 @@
 {
   "todo_write": {
-    "description": "记录并更新 todo list 以规划工作并展示进度。在调用任何其他工具之前，必须先通过 todo_write 创建至少一个 task，否则任何其他工具调用都会被拒绝。任务目标真正达成后必须明确 finish；若执行中发现原计划已被打乱、task 前提被证伪或目标变化，必须用 reorderFrom 重排作废，不能把失效 task 标记为完成。finish 前该 task 必须已有 todo_report；同一次回复中与 finish 并存的 todo_report 也计入。仅输出最终结论的收尾 task 首次 finish 会要求再次确认。返回的 started 字段为修改后排在第一的 task。",
+    "description": "记录并更新 todo list 以规划工作并展示进度。在调用任何其他工具之前，必须先通过 todo_write 创建至少一个 task，否则任何其他工具调用都会被拒绝。任务目标真正达成后必须明确 finish；若执行中发现原计划已被打乱、task 前提被证伪或目标变化，必须用 reorderFrom 重排作废，不能把失效 task 标记为完成。finish 前该 task 必须已有 todo_report；同一次回复中与 finish 并存的 todo_report 也计入。仅输出最终结论的收尾 task 首次 finish 会要求再次确认。返回的 started 字段是本次自动启动的第一个待处理 task。",
     "parameters": {
       "finish": "标记 task 完成。仅当目标确实达成时使用；该 task 必须已有 todo_report（同一次回复中的 todo_report 也计入），仅输出结论的收尾 task 首次调用会被要求再次 finish 确认。前提失效或计划变化请改用 reorderFrom。",
       "todos": "要追加的新 tasks，或在设置了 reorderFrom 时作为替换的内容。仅标记 task 完成时请省略。",
-      "reorderFrom": "现有 task 编号，从该编号起作废当前计划中未完成的 task，并追加替换的新计划。目标变化、前提被证伪、任务阻塞或出现必须优先处理的新问题时必须使用；已完成的 task 不受影响。仅作废时可省略 todos。"
+      "reorderFrom": "现有 task 序号，从该序号起作废当前计划中未完成的 task，并追加替换的新计划。目标变化、前提被证伪、任务阻塞或出现必须优先处理的新问题时必须使用；已完成的 task 不受影响。仅作废时可省略 todos。"
     }
   },
   "todo_read": {
@@ -16,7 +16,7 @@
   "todo_report": {
     "description": "上报当前 task 和 issue。在调用任何其他工具时，必须同时进行 todo_report，否则任何其他工具调用都会被拒绝，调用仅包含 todo 工具或最终回复时例外。同一次回复中，finish 之后才执行到的上报仍按该 task 的收尾上报接受。",
     "parameters": {
-      "index": "进行中 task 的编号；也可以引用同一次回复中随后 todo_write 才追加的新 task。",
+      "index": "进行中 task 的序号；也可以引用同一次回复中随后 todo_write 才追加的新 task。",
       "inIssue": "在执行当前任务时，只要遇到一个计划外的多步骤临时问题，就应当输出 true，且处理问题期间持续输出 true。包括但不限于测试失败、缺陷定位、环境问题、资料查找等。若正在精确执行当前任务，没有额外问题，则输出 false。",
       "issue": "遇到的新问题的描述，inIssue 切换到 true 时必须提供，之后应当省略（延续上次提供的问题）。若遇到的问题远超出当前 task 范畴，则应当调用 todo_write 进行 reorder 而不是视作 issue，例如测试时遇到了问题需要修复，或是要新增测试内容，诸如此类情况则应当重排 tasks。"
     }

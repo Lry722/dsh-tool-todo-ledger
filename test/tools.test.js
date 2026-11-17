@@ -298,6 +298,19 @@ test('an already-aborted call writes nothing', async () => {
   assert.deepEqual(env.state().currentIds, []);
 });
 
+test('an already-aborted report writes nothing', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const env = harness({ signal: controller.signal });
+  await env.tools.todo_write.execute(
+    { todos: ['Task'] },
+    { ...env.exec, signal: new AbortController().signal },
+  );
+  const reported = await env.tools.todo_report.execute({ index: 1, inIssue: false }, env.exec);
+  assert.deepEqual(reported, {});
+  assert.equal(env.state().nodes[0].reports.length, 0);
+});
+
 test('composite writes preserve separate start, report and finish operations', async () => {
   const env = harness();
   const created = await env.tools.todo_write.execute({ todos: ['Task'] }, env.exec);

@@ -1,7 +1,7 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools';
 import { GUARD_MESSAGES, NOTICES, fillPrompt } from './prompts.js';
-import { callArguments, stepToolCalls } from './step.js';
+import { callArguments, callPosition, stepToolCalls } from './step.js';
 
 const EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'todo_report']);
 const INITIAL_COVERAGE_BUDGET = 3;
@@ -25,7 +25,7 @@ export function stepReportTargets(state, message, afterCallId) {
   const calls = stepToolCalls(message);
   let start = 0;
   if (afterCallId !== undefined) {
-    const boundary = calls.findIndex((call) => call.id === afterCallId);
+    const boundary = callPosition(calls, afterCallId);
     if (boundary < 0) return targets;
     start = boundary + 1;
   }
@@ -77,14 +77,19 @@ export function repeatedIssue(state, execution) {
   if (args === null || typeof args !== 'object' || args.inIssue !== true) return undefined;
   const issue = issueName(args.issue);
   if (issue === undefined) return undefined;
-  const task = inProgressTask(state);
+  // Judge the task the report names, not whichever task is active now: a report
+  // may close out the task that a finish in the same step just completed.
+  const index = args.index;
+  const reported = Number.isInteger(index) && index >= 1 && index <= (state?.currentIds?.length ?? 0)
+    ? state.nodes?.find((node) => node.id === state.currentIds[index - 1])
+    : inProgressTask(state);
   // A reorder keeps an in-progress task but clears the continuation target, so
   // its next issue must be named even when the name matches an older report.
-  if (state.lastReportTaskId !== task?.id) return undefined;
-  const previous = task.reports.at(-1);
+  if (!reported || state.lastReportTaskId !== reported.id) return undefined;
+  const previous = reported.reports.at(-1);
   if (previous?.inIssue !== true) return undefined;
   if (issueName(previous.issue) !== issue) return undefined;
-  return { taskId: task.id, issue };
+  return { taskId: reported.id, issue };
 }
 
 /**
@@ -203,9 +208,10 @@ function isPtcDispatch(execution) {
  */
 export function stepCoverage(state, message, execution) {
   const calls = stepToolCalls(message);
-  const root = calls.find((call) => call.id === execution.rootCallId);
+  const rootIndex = callPosition(calls, execution.rootCallId);
   // Calls outside the tracked assistant step cannot be model actions; leave them unguarded.
-  if (!root) return { outcome: 'exempt' };
+  if (rootIndex < 0) return { outcome: 'exempt' };
+  const root = calls[rootIndex];
 
   // A PTC sub-dispatch is one call inside a `run_code` program. Todo tools stay
   // exempt so a program can bootstrap an empty ledger; actions need an active
@@ -230,7 +236,6 @@ export function stepCoverage(state, message, execution) {
     return { outcome: 'exempt' };
   }
 
-  const rootIndex = calls.indexOf(root);
   const task = inProgressTask(state);
   if (!task) {
     // The first plan may be written later in this same step. A write that

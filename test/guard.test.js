@@ -386,6 +386,18 @@ test('repeatedIssue only matches an explicit continuation of the active issue', 
     repeatedIssue(reordered, { arguments: { inIssue: true, issue: '查询 DSH API' } }),
     undefined,
   );
+
+  // The report's own index decides which task is judged: t2 is pending while t1
+  // still owns the issue, so naming it for t2 must not look like a repeat.
+  const twoTasks = writeLedger(issueReportedLedger('同名 issue'), ['Two']).state;
+  assert.deepEqual(
+    repeatedIssue(twoTasks, { arguments: { index: 1, inIssue: true, issue: '同名 issue' } }),
+    { taskId: 't1', issue: '同名 issue' },
+  );
+  assert.equal(
+    repeatedIssue(twoTasks, { arguments: { index: 2, inIssue: true, issue: '同名 issue' } }),
+    undefined,
+  );
 });
 
 test('unreportedFinish only matches an active task without reports', () => {

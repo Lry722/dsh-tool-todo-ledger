@@ -11,12 +11,12 @@ import {
   updateLedger,
 } from './ledger.js';
 import { TOOL_MESSAGES, TOOL_PROMPTS, fillPrompt } from './prompts.js';
-import { callArguments, stepToolCalls } from './step.js';
+import { callArguments, callPosition, stepToolCalls } from './step.js';
 
 const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
 // Exports are private temporary files; remove them even when the caller never
 // deletes the returned path. The timer is unref'd so it cannot hold the host open.
-export const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
+const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function scheduleExportCleanup(directory, ttlMs = EXPORT_TTL_MS) {
   setTimeout(() => {
@@ -78,7 +78,7 @@ function recordReport(exec, state, index, inIssue, issue, callId) {
  */
 function projectedPlan(state, message, callId) {
   const calls = stepToolCalls(message);
-  const position = calls.findIndex((call) => String(call.id) === String(callId));
+  const position = callPosition(calls, callId);
   if (position < 0) return undefined;
   let projected = state;
   let writes = 0;
@@ -249,6 +249,7 @@ export function createLedgerTools(ctx, stepOf) {
       },
       output: { schema: OUTPUT_SCHEMA, render: textOutput },
       async execute(args, exec) {
+        if (exec.signal?.aborted) return {};
         const state = owningState(ctx, exec, 'todo_report');
         if (args.index > state.currentIds.length) {
           const message = stepOf?.(exec.agent.session);
