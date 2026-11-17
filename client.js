@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
     const locale = 'todoLedger';
     const sidebarId = 'dsh-tool-todo-ledger';
     const settingsNamespace = 'todo-ledger';
-    const settingsKey = `dsh-tool-todo-ledger#${settingsNamespace}`;
+    const settingsKey = 'dsh-tool-todo-ledger';
 
     const en = {
       todoTitle: 'To-dos',
@@ -762,8 +762,8 @@ window.__ModuleLoader__.load({
         const settingsForm = new ReminderSettingsController(ctx.configForms.get(settingsNamespace));
         ctx.effect(() => () => settingsForm.dispose(), 'todo-ledger settings form');
         ctx.effect(() => ctx.locale.register(locale, { en, zh }));
-        ctx.effect(() => ctx.configForms.whileServed([settingsNamespace], () => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
-          name: 'plugins.row.config',
+        ctx.effect(() => ctx.configForms.whileServed([settingsNamespace], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+          name: 'plugins.bundle.config',
           key: settingsKey,
           locale,
           inject: () => settingsForm.inject(),

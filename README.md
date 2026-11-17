@@ -14,7 +14,7 @@
 
 ## 配置
 
-- `reminderIntervalMs`：`todo_report` 周期性提醒当前任务与 active issue 的间隔，单位毫秒，默认 `60000`；设为 `0` 关闭提醒。该字段为 volatile；在 Plugins 页本插件的 `todo-ledger` 行点击配置即可修改，无需重启。
+- `reminderIntervalMs`：`todo_report` 周期性提醒当前任务与 active issue 的间隔，单位毫秒，默认 `60000`；设为 `0` 关闭提醒。该字段为 volatile；在 Plugins 页打开本插件即可直接修改，无需重启。
 
 ## 安装
 

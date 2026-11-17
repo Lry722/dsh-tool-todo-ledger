@@ -318,12 +318,12 @@ test('per-session UI state stays bounded while browsing sessions', () => {
   assert.equal(sidebar.uiStates.size, 64);
 });
 
-test('the plugin row configures the reminder interval with the shared settings form', () => {
+test('the plugin page configures the reminder interval with the shared settings form', () => {
   const ctx = createContext('session-1');
   const { apply } = definition.factory(requireModule);
   apply(ctx);
-  const settings = ctx.registrations.find((options) => options.name === 'plugins.row.config');
-  assert.equal(settings?.key, 'dsh-tool-todo-ledger#todo-ledger');
+  const settings = ctx.registrations.find((options) => options.name === 'plugins.bundle.config');
+  assert.equal(settings?.key, 'dsh-tool-todo-ledger');
   const face = settings.inject();
   assert.equal(settings.component({
     t: (key) => key,
