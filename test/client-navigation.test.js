@@ -12,8 +12,33 @@ const React = {
 };
 
 const primitives = {
-  Button: 'Button',
-  Input: 'Input',
+  SettingsForm: 'SettingsForm',
+  SettingsValueField: 'SettingsValueField',
+  SettingsFormModel: class {
+    constructor(scope, specs) {
+      this.scope = scope;
+      this.specs = specs;
+    }
+    bind(projection) {
+      return { getSnapshot: projection, subscribe: () => () => {} };
+    }
+    shell() {
+      return { writable: true, dirty: false, saving: false, failed: false };
+    }
+    field() {
+      return { value: '60000', overridden: false, invalid: false, empty: false };
+    }
+    actions() {
+      return {
+        save: () => {},
+        discard: () => {},
+        edit: () => {},
+        resetField: () => {},
+      };
+    }
+    dispose() {}
+  },
+  settingsNumberField: (field) => ({ field }),
   StateDot: () => null,
   IconChecklistOutlineRegular: () => null,
   IconChevronDownOutlineRegular: () => null,
@@ -58,6 +83,10 @@ function createContext(sessionId, instance) {
       binding: () => ({ session: { loadThrough: async (seq) => { loaded.push(seq); } } }),
     },
     sidebarRightTabs: { register: () => () => {} },
+    configForms: {
+      get: () => ({}),
+      whileServed: (_namespaces, register) => register(),
+    },
     slots: {
       _stores: instance === undefined
         ? new Map()
@@ -289,38 +318,30 @@ test('per-session UI state stays bounded while browsing sessions', () => {
   assert.equal(sidebar.uiStates.size, 64);
 });
 
-test('the plugin row configures the reminder interval', async () => {
+test('the plugin row configures the reminder interval with the shared settings form', () => {
   const ctx = createContext('session-1');
   const { apply } = definition.factory(requireModule);
   apply(ctx);
   const settings = ctx.registrations.find((options) => options.name === 'plugins.row.config');
   assert.equal(settings?.key, 'dsh-tool-todo-ledger#todo-ledger');
-  assert.equal(settings.component({ t: (key) => key, view: 'summary' }), 'settingsSummary');
+  const face = settings.inject();
+  assert.equal(settings.component({
+    t: (key) => key,
+    view: 'summary',
+    useReminderSettings: (selector) => selector(face.hooks.reminderSettings.getSnapshot()),
+  }), 'settingsSummary');
 
-  const writes = [];
-  const form = {
-    state: {
-      status: 'ready',
-      value: { reminderIntervalMs: 60_000 },
-      base: { reminderIntervalMs: 60_000 },
-      revision: 4,
-      writable: true,
-    },
-    async mutate(ops, revision) {
-      writes.push([ops, revision]);
-      return true;
-    },
-  };
-  const elements = elementsOf(settings.component({ t: (key) => key, view: 'page', form }));
-  assert.equal(elements.find((element) => element.type === 'Input')?.props.value, '60000');
-
-  elements.find((element) => element.children[0] === 'settingsSave').props.onClick();
-  await Promise.resolve();
-  assert.deepEqual(writes, [
-    [[{ op: 'set', path: ['reminderIntervalMs'], value: 60_000 }], 4],
-  ]);
-
-  elements.find((element) => element.children[0] === 'settingsReset').props.onClick();
-  await Promise.resolve();
-  assert.deepEqual(writes[1], [[{ op: 'unset', path: ['reminderIntervalMs'] }], 4]);
+  const state = face.hooks.reminderSettings.getSnapshot();
+  const tree = settings.component({
+    t: (key) => key,
+    view: 'page',
+    useReminderSettings: (selector) => selector(state),
+    ...face,
+  });
+  assert.equal(tree.type, 'SettingsForm');
+  const field = tree.props.children;
+  assert.equal(field?.type, 'SettingsValueField');
+  assert.equal(field?.props.numeric, true);
+  assert.equal(field?.props.value, '60000');
+  assert.equal(field?.props.label, 'reminderIntervalLabel');
 });
