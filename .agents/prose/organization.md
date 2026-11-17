@@ -6,6 +6,7 @@ include:
   - "**/*.ts"
   - "!prompts/"
   - "!.agents/prose/"
+  - "!AGENTS.md"
 priority: 90
 ---
 
