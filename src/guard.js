@@ -8,15 +8,12 @@ const INITIAL_COVERAGE_BUDGET = 3;
 const PTC_DISPATCH_MARKER = ':ptc:';
 
 /**
- * Task ids addressed by `todo_report` calls in this assistant step. With an
- * `afterCallId`, only calls listed after it are considered: such a report has
- * not run yet, so a finish can look forward to it. Reports that already ran are
- * judged by the ledger instead, because they may have failed. A `reorderFrom`
- * between the boundary and a report rebases the later indices, so that report
- * is not counted against the pre-reorder plan.
+ * Task ids addressed by `todo_report` calls in this assistant step.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's tool calls.
- * @param afterCallId - optional call id that bounds the look-ahead.
+ * @param afterCallId - optional call id that bounds the look-ahead. Only calls
+ *   listed after that call are considered, because those reports have not run
+ *   yet and a finish can count on them.
  * @returns the set of targeted task ids.
  */
 export function stepReportTargets(state, message, afterCallId) {
@@ -31,6 +28,8 @@ export function stepReportTargets(state, message, afterCallId) {
   }
   for (const call of calls.slice(start)) {
     if (call.name === 'todo_write') {
+      // A `reorderFrom` between the boundary and a report rebases the later
+      // indices, so that report is not counted against the pre-reorder plan.
       if (callArguments(call)?.reorderFrom !== undefined) break;
       continue;
     }
@@ -66,8 +65,8 @@ function issueName(value) {
 /**
  * Whether a `todo_report` restates the issue it is continuing instead of
  * omitting the optional name. Continuation needs no name, so repeating the
- * active one only spends context; the guard steers once and still admits the
- * report. Trimmed equality keeps harmless whitespace from hiding a repeat.
+ * active one only spends context. The guard steers once and still admits the
+ * report.
  * @param state - the current `todoLedger` projection.
  * @param execution - the report execution whose parsed arguments are inspected.
  * @returns the repeated task and issue name, or undefined.
@@ -88,16 +87,14 @@ export function repeatedIssue(state, execution) {
   if (!reported || state.lastReportTaskId !== reported.id) return undefined;
   const previous = reported.reports.at(-1);
   if (previous?.inIssue !== true) return undefined;
+  // Trimmed equality keeps harmless whitespace from hiding a repeat.
   if (issueName(previous.issue) !== issue) return undefined;
   return { taskId: reported.id, issue };
 }
 
 /**
- * Detect a `todo_write` finish for an active task that has no execution report
- * yet. Such a finish is either a pure-output closing task (legitimate, no
- * actions to report) or a task whose premise was disproved and should be
- * reordered away. Only the model can tell, so the first attempt is refused for
- * confirmation instead of being either silently admitted or hard-rejected.
+ * Detect a `todo_write` finish for an active task that has no recorded report
+ * yet.
  * @param state - the current `todoLedger` projection.
  * @param execution - the `todo_write` execution whose parsed arguments are inspected.
  * @returns the finished task's current index and stable id, or undefined.
@@ -137,13 +134,9 @@ function reportToken(state) {
 }
 
 /**
- * Create the violation budget that makes coverage checks lenient before they
+ * Create the coverage budget that makes coverage checks lenient before they
  * become strict. Each warning round grants one exempt step per remaining budget
- * unit; a successful report resets the budget.
- *
- * Warnings only demand the missing report; they never disclose how much of the
- * allowance is left, because knowing the slack invites spending it instead of
- * reporting immediately.
+ * unit. A successful report resets the budget.
  * @param initial - exempt steps granted by the first warning round.
  * @returns the mutable budget.
  */
@@ -169,6 +162,9 @@ export function createCoverageBudget(initial = INITIAL_COVERAGE_BUDGET) {
       }
       roundStarted = true;
       remaining = budget - 1;
+      // Warnings only demand the missing report. They never disclose how much of
+      // the budget is left, because knowing the remaining budget invites
+      // spending it instead of reporting immediately.
       const template = budget === 1 ? GUARD_MESSAGES.coverageWarning.one : GUARD_MESSAGES.coverageWarning.many;
       return { allowed: true, warning: template };
     },
@@ -190,33 +186,25 @@ function isPtcDispatch(execution) {
 }
 
 /**
- * Classify one tool execution against the current todo plan.
- * A work step needs an in-progress main task and a `todo_report` somewhere in
- * the same assistant message. Report position and count are tolerated: a report
- * that appears after the guarded action has not run yet, so the action is
- * admitted provisionally and later steps judge whether it was recorded. A report
- * without any action tool is still rejected; missing or failed reports are
- * exemptible. A plan without an active task stays a hard violation, except when
- * a `todo_write` later in the same step may still create and start the first
- * task after this action runs, so the action is admitted as a bootstrap and the
- * following step re-checks the now-persisted plan.
+ * Classify one tool execution against the current todo plan. A work step needs
+ * an active task and a `todo_report` in the same step.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's tool calls.
- * @param execution - the execution being guarded; `rootCallId` identifies the
+ * @param execution - the execution being guarded. `rootCallId` identifies the
  *   model-requested call even for a nested PTC sub-dispatch.
  * @returns the coverage classification for the execution.
  */
 export function stepCoverage(state, message, execution) {
   const calls = stepToolCalls(message);
   const rootIndex = callPosition(calls, execution.rootCallId);
-  // Calls outside the tracked assistant step cannot be model actions; leave them unguarded.
+  // Calls outside the tracked assistant step cannot be model actions. Leave them unguarded.
   if (rootIndex < 0) return { outcome: 'exempt' };
   const root = calls[rootIndex];
 
   // A PTC sub-dispatch is one call inside a `run_code` program. Todo tools stay
-  // exempt so a program can bootstrap an empty ledger; actions need an active
-  // task, while report coverage is judged once per program after it finishes
-  // (there is no message-level call list to look ahead into).
+  // exempt so a program can bootstrap an empty ledger. Actions need an active
+  // task. Report coverage is judged once per program after it finishes, because
+  // there is no message-level call list to look ahead into.
   if (isPtcDispatch(execution)) {
     if (EXEMPT_TOOLS.has(execution.name)) return { outcome: 'exempt' };
     if (!inProgressTask(state)) return { outcome: 'blocked', reason: GUARD_MESSAGES.noActiveTask };
@@ -229,7 +217,7 @@ export function stepCoverage(state, message, execution) {
   if (root.name === RUN_CODE_NAME) return { outcome: 'exempt' };
 
   if (EXEMPT_TOOLS.has(root.name)) {
-    // A report must accompany any other tool; reporting alone only doubles requests.
+    // A report must accompany any other tool. Reporting alone only doubles requests.
     if (root.name === 'todo_report' && !calls.some((call) => call.name !== 'todo_report')) {
       return { outcome: 'blocked', reason: GUARD_MESSAGES.standaloneReport };
     }
@@ -238,10 +226,11 @@ export function stepCoverage(state, message, execution) {
 
   const task = inProgressTask(state);
   if (!task) {
-    // The first plan may be written later in this same step. A write that
-    // already ran earlier cannot help: it would have started the task or
-    // finished the plan, so admitting the action then is unsafe. A later write
-    // only bootstraps here when it actually adds tasks.
+    // A plan without an active task is a hard block, with one exception: the
+    // first plan may be written later in this same step. A write that already
+    // ran earlier cannot help. It would have started the task or finished the
+    // plan, so admitting the action then is unsafe. A later write only
+    // bootstraps here when it actually adds tasks.
     const bootstrap = calls.some((call, index) => {
       if (index <= rootIndex || call.name !== 'todo_write') return false;
       const tasks = callArguments(call)?.todos;
@@ -251,13 +240,15 @@ export function stepCoverage(state, message, execution) {
     return { outcome: 'blocked', reason: GUARD_MESSAGES.noActiveTask };
   }
 
+  // Missing or failed reports stay exemptible: the caller spends the coverage
+  // budget on them instead of blocking the action.
   const reports = calls.filter((call) => call.name === 'todo_report');
   if (reports.length === 0) return { outcome: 'uncovered', coverage: 'missing' };
   if (reports.some((report) => reportRecorded(task, String(report.id)))) {
     return { outcome: 'covered' };
   }
 
-  // A report later in the same message cannot be recorded yet; let the action run
+  // A report later in the same message cannot be recorded yet. Let the action run
   // and verify the report in the following step instead of rejecting the whole step.
   if (reports.some((report) => calls.indexOf(report) > rootIndex)) {
     return { outcome: 'provisional' };
@@ -323,9 +314,9 @@ export function installStepTracker(ctx) {
 }
 
 /**
- * Register the monotonic guard that rejects uncovered tool calls for one agent.
- * Each uncovered step consumes the exemption budget; a successful report resets
- * it, and only an exhausted budget becomes a hard denial.
+ * Register the monotonic guard that blocks uncovered tool calls for one agent.
+ * Each uncovered step consumes the coverage budget. A successful report resets
+ * it, and only an exhausted budget produces a hard block.
  * @param ctx - plugin context providing the ledger projection.
  * @param agent - the agent whose tool calls are guarded.
  * @param stepOf - latest assistant-message lookup from {@link installStepTracker}.
@@ -368,7 +359,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       || coverage.outcome === 'bootstrap'
     ) return undefined;
     // An assistant message may spend at most one admission. Later uncovered
-    // actions reuse it, including a denial, without steering again.
+    // actions reuse it, including a block, without steering again.
     if (memory.step.message !== message) {
       memory.step.message = message;
       memory.step.admission = budget.admit();
@@ -395,15 +386,15 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       memory.issue.steered = undefined;
       return;
     }
-    // One steer per issue streak is enough; a compliant report (one that omits
-    // the name) clears the marker so a later relapse is corrected again.
+    // One steer per issue streak is enough. A compliant report that omits the
+    // name clears the marker so a later relapse is corrected again.
     if (
       memory.issue.steered?.taskId === repeated.taskId
       && memory.issue.steered.issue === repeated.issue
     ) return;
     const text = fillPrompt(GUARD_MESSAGES.repeatedIssue, { issue: repeated.issue });
-    // Record the correction only after the steer is delivered; a transient
-    // failure must not suppress the reminder for the rest of the issue streak.
+    // Record the steer only after it is delivered. A transient failure must not
+    // suppress it for the rest of the issue streak.
     if (steerAgent(execution.agent ?? guardedAgent, text)) memory.issue.steered = repeated;
   }
 
@@ -455,7 +446,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
         steerAgent(agent, admission.warning);
       }
     } catch (_error) {
-      // Observation is best-effort; the guard must not fail a tool call.
+      // Observation is best-effort. The guard must not fail a tool call.
     }
   };
 
@@ -469,16 +460,17 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
       const state = ctx.sessionProjections.stateOf(execution.agent.session, 'todoLedger');
       const message = stepOf(execution.agent.session);
       // Reports never inherit a decision cached for another call in the same
-      // message; only the step structure decides whether a report may run.
+      // message. Only the step structure decides whether a report may run.
       if (execution.name === 'todo_report') {
         const coverage = stepCoverage(state, message, execution);
         if (coverage.outcome === 'blocked') return coverage.reason;
         steerRepeatedIssue(state, execution, execution.agent);
         return undefined;
       }
-      // A finish without any report is ambiguous. Refuse the first attempt so
-      // the model can either reorder a disproved task or confirm a task that
-      // only produces the final answer without tools.
+      // A finish without any report is ambiguous. The task either only produces
+      // the final answer without tools, or its premise was disproved and it
+      // should be reordered away. Only the model can tell, so the first attempt
+      // is refused for confirmation.
       if (execution.name === 'todo_write') {
         // A reorder or a finished task can retire a confirmation the model will
         // never retry, so keep the set proportional to the current plan.
@@ -488,8 +480,10 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
         }
         const unreported = unreportedFinish(state, execution);
         const finishBoundary = execution.rootCallId ?? execution.callId;
-        // A report later in the same step counts: it will run after this finish,
+        // A report later in the same step counts. It will run after this finish,
         // and the ledger accepts it as the finished task's closing report.
+        // Reports that already ran are judged by the ledger instead, because
+        // they may have failed.
         if (
           unreported
           && !memory.finish.delete(unreported.taskId)
@@ -529,7 +523,7 @@ export function installReportGuard(ctx, agent, stepOf, budget = createCoverageBu
         try {
           reportGuardFailure(ctx, agent, error);
         } catch (_error) {
-          // Reporting is best-effort; the tool call must still proceed.
+          // Reporting is best-effort. The tool call must still proceed.
         }
       }
       return undefined;

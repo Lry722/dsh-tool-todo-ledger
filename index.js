@@ -11,13 +11,13 @@ export const Config = z.object({
   reminderIntervalMs: z.natural()
     .max(Number.MAX_SAFE_INTEGER)
     .default(ACTIVE_TASK_REMINDER_MS)
-    .description('todo_report 周期性提醒当前任务与 issue 的间隔（毫秒）。0 表示关闭提醒。')
+    .description('周期性提醒当前任务与 issue 的间隔（毫秒）。0 表示关闭提醒。')
     .volatile(),
 });
 
 const reportSchema = zod.object({
-  // Legacy `localTask` reports can be replayed without an index; accepting the
-  // absent field keeps the schema aligned with the states the fold can produce.
+  // A report may lack an index. Accepting the absent field keeps the schema
+  // aligned with the states the fold can produce.
   index: zod.number().int().optional(),
   inIssue: zod.boolean(),
   issue: zod.string().optional(),
@@ -86,13 +86,13 @@ const ledgerStateSchema = zod.object({
     id: zod.string(),
     content: zod.string(),
     status: zod.enum(['pending', 'in_progress', 'completed', 'void']),
-    // Only the open turn keeps more than its last report; closed turns fold the
+    // Only the open turn keeps more than its last report. Closed turns fold the
     // rest into `turns[].issues`.
     reports: zod.array(reportSchema),
     startCallId: zod.string().optional(),
     startSeq: zod.number().optional(),
     // Completion metadata scopes a late report to the step that finished the
-    // task; older sessions simply lack it and keep rejecting those reports.
+    // task. Without these fields, late reports are rejected.
     finishTurn: zod.number().int().nonnegative().optional(),
     finishStep: zod.number().int().nonnegative().optional(),
   })),

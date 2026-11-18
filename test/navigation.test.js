@@ -10,7 +10,7 @@ import {
   writeLedger,
 } from '../src/ledger.js';
 
-test('start events expose their tool-call target and keep it after completion', () => {
+test('start events expose their navigation target and keep it after completion', () => {
   let state = writeLedger(emptyLedger(), ['Task']).state;
   const started = { ...state, nodes: state.nodes.map((node) => ({ ...node, status: 'in_progress' })) };
   state = foldLedgerEvent(state, {
@@ -135,7 +135,7 @@ test('report targets navigate current issue summaries and both Dock issue layout
   }]);
 });
 
-test('a latest same-name report without a call id clears the previous issue target', () => {
+test('the latest report with the same name and no call id clears the previous issue target', () => {
   let state = startedTask();
   state = issueReport(state, 55, { index: 1, inIssue: true, issue: 'Inspect' }, 'report-55');
   state = issueReport(state, 56, { index: 1, inIssue: true, issue: 'Inspect' });

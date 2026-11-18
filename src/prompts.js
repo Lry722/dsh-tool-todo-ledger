@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 
-// Prompt JSON is read at module evaluation rather than imported as a module, so
-// the host HMR does not observe edits to prompts/*.json. Touch this module after
-// editing one (or restart) to evict this module and its importers; a trivial
-// comment change such as this one is enough.
+/**
+ * Read one prompt JSON resource from `prompts/`.
+ * @param name - resource name without the `.json` suffix.
+ * @returns the parsed resource.
+ */
 function loadJson(name) {
+  // Prompt JSON is read at module evaluation, so the host HMR does not observe
+  // edits to prompts/*.json. Touch this module after editing one (or restart) to
+  // evict this module and its importers. A comment change is enough.
   return JSON.parse(readFileSync(new URL(`../prompts/${name}.json`, import.meta.url), 'utf8'));
 }
 

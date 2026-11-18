@@ -15,7 +15,7 @@ test('runtime messages load and interpolate prompt placeholders', () => {
   );
   assert.match(GUARD_MESSAGES.coverageWarning.one, /最后一次警告/);
   assert.match(GUARD_MESSAGES.coverageWarning.many, /你忘了调用 todo_report/);
-  // Coverage warnings demand the missing report; they must not announce how much
+  // Coverage warnings demand the missing report. They must not announce how much
   // of the exemption allowance is left.
   assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.one, /\{\{/);
   assert.doesNotMatch(GUARD_MESSAGES.coverageWarning.many, /\{\{/);
@@ -34,8 +34,8 @@ test('runtime messages load and interpolate prompt placeholders', () => {
   assert.match(unrecordedReports, /所有工具调用将被拦截/);
   assert.match(unrecordedReports, /2「合入 master」/);
   assert.doesNotMatch(unrecordedReports, /\{\{/);
-  // Assert interpolation behavior instead of the current language so that
-  // localizing ledger messages never breaks this test.
+  // Assert interpolation behavior so that localizing ledger messages never
+  // breaks this test.
   assert.match(LEDGER_MESSAGES.taskIndexRange, /\{\{tool\}\}/);
   assert.match(LEDGER_MESSAGES.taskIndexRange, /\{\{count\}\}/);
   const taskIndexRange = fillPrompt(LEDGER_MESSAGES.taskIndexRange, { tool: 'todo_write', count: 3 });

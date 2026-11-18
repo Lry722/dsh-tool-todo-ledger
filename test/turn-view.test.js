@@ -192,7 +192,7 @@ test('issue summaries deduplicate names and filter reports by turn boundaries', 
   state = turnEvent(state, 12, 'turn/end', 2);
 
   const view = ledgerView(state);
-  // `current` describes the current plan turn; earlier turns keep their own view.
+  // `current` describes the current plan turn. Earlier turns keep their own view.
   assert.deepEqual(view.current[0].issues.map((issue) => [issue.name, issue.firstSeq, issue.lastSeq, issue.active]), [
     ['Gamma', 11, 11, true],
   ]);
@@ -270,7 +270,7 @@ test('archived turns only expose navigation that happened before turn end', () =
   const second = view.turns.find((turn) => turn.turn === 2);
   const nav = (task) => [task.startCallId, task.startSeq];
   assert.deepEqual(nav(taskById(first, 't1')), ['call-3', 3], 'a start inside turn 1 stays visible');
-  assert.deepEqual(nav(taskById(first, 't2')), [undefined, undefined], 'B started after turn 1 closed');
+  assert.deepEqual(nav(taskById(first, 't2')), [undefined, undefined], 'B started after turn 1 ended');
   assert.equal(Object.hasOwn(taskById(first, 't2'), 'startCallId'), false);
   assert.equal(Object.hasOwn(taskById(first, 't2'), 'startSeq'), false);
   assert.deepEqual(nav(taskById(second, 't2')), ['call-7', 7], 'the open turn keeps live navigation');
@@ -295,7 +295,7 @@ test('writes after turn end wait for the next turn and never join the archive', 
   const archived = ledgerView(state).turns.find((turn) => turn.turn === 1);
   state = writeEvent(state, 5, ['B']);
   const closedTurn = state.turns.find((turn) => turn.turn === 1);
-  assert.deepEqual(closedTurn.taskIds, ['t1'], 'a closed turn must not collect later writes');
+  assert.deepEqual(closedTurn.taskIds, ['t1'], 'an archived turn must not collect later writes');
   assert.deepEqual(ledgerView(state).turns.find((turn) => turn.turn === 1), archived);
 
   state = turnEvent(state, 6, 'turn/start', 2);
@@ -346,7 +346,7 @@ test('closing a turn archives its issues and keeps only the last report', () => 
   assert.equal(state.nodes[0].reports.length, 2);
 
   state = turnEvent(state, 6, 'turn/end', 1);
-  assert.equal(state.nodes[0].reports.length, 1, 'archived reports collapse to the last one');
+  assert.equal(state.nodes[0].reports.length, 1, 'archived reports keep only the last one');
   assert.equal(state.nodes[0].reports[0].seq, 5);
   assert.deepEqual(state.turns.find((turn) => turn.turn === 1).issues.t1, [
     { name: 'Alpha', firstSeq: 4, lastSeq: 5, startCallId: 'continued-call', startSeq: 5 },
@@ -369,15 +369,15 @@ test('closing a turn archives its issues and keeps only the last report', () => 
   assert.deepEqual(state.turns.find((turn) => turn.turn === 2).issues.t1.map((issue) => issue.name), ['Beta']);
 });
 
-test('a continued issue resolves from the report kept after a turn closed', () => {
+test('a continued issue resolves from the report kept after a turn ended', () => {
   let state = turnEvent(emptyLedger(), 1, 'turn/start', 1);
   state = writeEvent(state, 2, ['Task']);
   state = statusEvent(state, 3, 'start', 1);
   state = reportEvent(state, 4, 1, true, 'Alpha', 'alpha-call');
   state = turnEvent(state, 5, 'turn/end', 1);
   state = turnEvent(state, 6, 'turn/start', 2);
-  // An older writer could leave a continuation unnamed; the fold resolves it
-  // from the report retained by the previous turn.
+  // An older writer could leave a continuation unnamed. The fold resolves it
+  // from the report kept by the previous turn.
   state = foldLedgerEvent(state, {
     type: 'todo/write', seq: 7, time: 700,
     data: {

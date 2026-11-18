@@ -19,9 +19,9 @@ window.__ModuleLoader__.load({
     const settingsKey = 'dsh-tool-todo-ledger';
 
     const en = {
-      todoTitle: 'To-dos',
+      todoTitle: 'Tasks',
       sidebarTitle: 'Tasks',
-      sidebarDescription: 'Inspect per-turn worksets, turn-end status, and issue summaries.',
+      sidebarDescription: 'Inspect the tasks and reported issues for each turn.',
       done: '{done} completed',
       pending: '{pending} pending',
       statusCompleted: 'Completed',
@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
       statusPending: 'Pending',
       statusVoid: 'Discarded',
       currentIssue: 'Current issue',
-      issueCount: '{count} issues',
+      issueCount: 'Issues: {count}',
       history: 'History',
       historyEmpty: 'No turn history is available.',
       turn: 'Turn {turn}',
@@ -37,52 +37,52 @@ window.__ModuleLoader__.load({
       turnSummary: 'Turn summary',
       openTurn: 'Current turn',
       emptyTurn: 'This turn has no task records.',
-      taskTotal: '{total} tasks',
+      taskTotal: 'Tasks: {total}',
       taskCompleted: '{completed} completed',
       taskVoided: '{voided} discarded',
       jumpToStart: 'Jump to the step that started this task',
       jumpFailed: 'Could not locate the requested step',
       jumpToIssue: 'Jump to the latest step that reported {issue}',
-      settingsSummary: 'Control how often todo_report repeats the active task and issue.',
+      settingsSummary: 'Control how often the current task and issue are repeated as a reminder.',
       reminderIntervalLabel: 'Reminder interval',
       reminderIntervalHint: 'Milliseconds between reminders that repeat the current task and issue. 0 disables reminders.',
       overridden: 'Overridden',
       reset: 'Reset to default',
-      readOnly: 'This deployment stores settings read-only.',
+      readOnly: 'This deployment\'s settings are read-only.',
       unavailable: 'This plugin is not loaded, so it cannot be configured right now.',
       save: 'Save',
       saving: 'Saving…',
-      saveFailed: 'The deployment did not accept these values; they were left for you to correct.',
+      saveFailed: 'The deployment did not accept these values. They were left for you to correct.',
       invalidNumber: 'Enter a number, or leave blank to use the default.',
     };
     const zh = {
       todoTitle: '任务',
       sidebarTitle: '任务',
-      sidebarDescription: '查看逐 turn 工作集、轮末状态和 issue 摘要。',
+      sidebarDescription: '查看每一轮的任务、状态和问题摘要。',
       done: '{done} 已完成',
       pending: '{pending} 待处理',
       statusCompleted: '已完成',
       statusActive: '进行中',
       statusPending: '待处理',
       statusVoid: '已作废',
-      currentIssue: '当前 issue',
-      issueCount: '{count} 个 issue',
+      currentIssue: '当前问题',
+      issueCount: '{count} 个问题',
       history: '历史记录',
-      historyEmpty: '暂无 turn 历史。',
+      historyEmpty: '暂无轮次历史。',
       turn: '第 {turn} 轮',
-      earlyTasks: '早期任务',
-      turnSummary: 'turn 摘要',
+      earlyTasks: '更早的任务',
+      turnSummary: '轮次摘要',
       openTurn: '当前轮',
       emptyTurn: '这一轮没有任务记录。',
-      taskTotal: '{total} 项',
+      taskTotal: '{total} 项任务',
       taskCompleted: '{completed} 已完成',
       taskVoided: '{voided} 已作废',
-      jumpToStart: '跳转到开始此任务的步骤',
+      jumpToStart: '跳转到此任务的起始步骤',
       jumpFailed: '无法定位对应步骤',
-      jumpToIssue: '跳转到最近报告 {issue} 的步骤',
-      settingsSummary: '控制 todo_report 重复当前任务与 issue 的间隔。',
+      jumpToIssue: '跳转到最近一次报告 {issue} 的步骤',
+      settingsSummary: '控制重复提醒当前任务与问题的间隔。',
       reminderIntervalLabel: '提醒间隔',
-      reminderIntervalHint: '每隔多少毫秒在 todo_report 的结果中重复当前任务与 issue；0 表示关闭提醒。',
+      reminderIntervalHint: '每隔多少毫秒重复提醒当前任务与问题。0 表示关闭提醒。',
       overridden: '已覆盖',
       reset: '恢复默认',
       readOnly: '本部署的设置为只读。',
@@ -90,7 +90,7 @@ window.__ModuleLoader__.load({
       save: '保存',
       saving: '保存中…',
       saveFailed: '本部署没有接受这些值，已保留供你修改。',
-      invalidNumber: '请填数字；留空表示使用默认值。',
+      invalidNumber: '请填数字，留空表示使用默认值。',
     };
 
     const css = `
@@ -271,7 +271,7 @@ window.__ModuleLoader__.load({
     function conversationSession(ctx, sessionId) {
       for (const entry of ctx.slots.entries('conversation.session')) {
         if (typeof entry.inject !== 'function' || entry.store === undefined || typeof entry.store === 'function') continue;
-        // DSH exposes no public view-navigation API; reuse the live Session store rendered by the slot.
+        // DSH exposes no public view-navigation API. Reuse the live Session store rendered by the slot.
         const instance = ctx.slots._stores?.get(entry.store)?.instances?.get(sessionId);
         if (instance === undefined) continue;
         return { face: entry.inject(sessionId, instance.actions), instance };
@@ -421,12 +421,12 @@ window.__ModuleLoader__.load({
       return [turnLabel(turn.turn, t), t('taskTotal', { total: turn.total }), ...(turn.tasks.length > 0 ? [turn.tasks[0].content] : [])].join('\u3000');
     }
 
-    // The rail is a scroll position, not a content list: rendering every turn
-    // button makes long sessions expensive while only a small window is visible.
+    // The rail tracks scroll position. Only a small window of turn buttons is
+    // rendered, so rendering cost stays bounded however many turns a session has.
     const TURN_RAIL_WINDOW = 120;
     const TURN_RAIL_MARK_HEIGHT = 10;
-    // Persisted per-session view state is a convenience cache, not durable data.
-    // Bound it so browsing many sessions cannot grow the map forever.
+    // Persisted per-session view state is a convenience cache, bounded so
+    // browsing many sessions cannot grow the map forever.
     const MAX_UI_STATES = 64;
 
     function rememberUiState(uiStates, sessionId, value) {
@@ -448,7 +448,7 @@ window.__ModuleLoader__.load({
       const autoStart = selectedIndex < 0
         ? 0
         : Math.max(0, Math.min(selectedIndex - Math.floor(TURN_RAIL_WINDOW / 2), maxWindowStart));
-      // A new selection always starts from a window that contains it; scrolling
+      // A new selection always starts from a window that contains it. Scrolling
       // then moves that same window so every turn stays reachable.
       const windowStart = railWindow !== null && railWindow.selectedTurn === selectedTurn
         ? Math.max(0, Math.min(railWindow.start, maxWindowStart))

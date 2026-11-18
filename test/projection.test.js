@@ -119,7 +119,7 @@ test('new reports keep their index after folding', () => {
   assertParses(projection.wire.viewSchema, ledgerView(state), 'new report view');
 });
 
-test('history projection retains operations instead of plan snapshots', () => {
+test('history projection retains ledger operations', () => {
   const projection = historyHarness();
   let state = projection.init();
   assert.deepEqual(state, []);
@@ -133,7 +133,7 @@ test('history projection retains operations instead of plan snapshots', () => {
   assert.deepEqual(next, [{ seq: 2, time: 20, ledger }]);
   assert.deepEqual(state, []);
 
-  // A legacy snapshot has no delta; its payload is the only record of that plan.
+  // A legacy snapshot has no delta. Its payload is the only record of that plan.
   const legacyData = { todos };
   const legacy = projection.apply(next, { type: 'todo/write', seq: 3, time: 30, data: legacyData });
   assert.deepEqual(legacy, [{ seq: 2, time: 20, ledger }, { seq: 3, time: 30, data: legacyData }]);

@@ -50,9 +50,9 @@ function closeTurn(state, turn, seq) {
     if (summaries.length > 0) issues[id] = summaries;
   }
   if (Object.keys(issues).length > 0) turn.issues = issues;
-  // Reports are only needed while their turn is open. Keep the last one of each
-  // task so issue continuation and the active issue still resolve in later
-  // turns; everything else lives on as the turn's issue summaries.
+  // Reports are needed in full only while their turn is open. Keep the last one
+  // of each task so issue continuation and the active issue still resolve in
+  // later turns. Everything else lives on as the turn's issue summaries.
   for (const node of state.nodes) {
     if (node.reports.length > 1) node.reports = [node.reports.at(-1)];
   }
@@ -81,7 +81,7 @@ function closeCurrentTurn(state, event) {
   return next;
 }
 
-// Old reports used localTask; normalize them when replaying existing sessions.
+// Reports replayed from existing sessions may carry `localTask`. Normalize them.
 function normalizeReport(report) {
   const inIssue = report?.inIssue ?? report?.inLocalTask;
   const rawIssue = report?.issue ?? report?.localTask;
@@ -179,7 +179,7 @@ export function dockTodos(state) {
 }
 
 // Validate and apply a write to a mutable working copy. Public entry points
-// clone first; the composite update reuses one working copy across steps.
+// clone first. The composite update reuses one working copy across steps.
 function applyWrite(state, rawTasks, reorderFrom) {
   const tasks = normalizeTasks(rawTasks);
   const reorder = reorderFrom !== undefined;
@@ -203,7 +203,7 @@ function applyWrite(state, rawTasks, reorderFrom) {
     }
   }
 
-  // Full validation finished above; everything below mutates the working copy.
+  // Full validation finished above. Everything below mutates the working copy.
   if (reorder) {
     const discarded = new Set(invalidatedIds);
     state.currentIds = state.currentIds.filter((id) => !discarded.has(id));
@@ -284,8 +284,8 @@ function firstPendingIndex(state) {
 
 export function updateLedger(state, args) {
   const { todos, reorderFrom, finish } = args;
-  // One working copy for every step. Helpers validate before mutating, so a
-  // failure anywhere leaves both the published state and this copy untouched.
+  // Each helper validates before mutating its own step. A failure discards the
+  // working copy, so the published state stays untouched.
   const next = clone(state);
   let finished;
   let write;
@@ -335,15 +335,16 @@ export function updateLedger(state, args) {
 
 /**
  * Whether `task` was completed by a finish in the model step that is still
- * current. Tool calls in one assistant step execute in model order, so a report
- * listed after its finish runs only once the task is already completed. The
- * report still describes that task's final work; call-list order is not
- * protocol-meaningful, so it is accepted instead of demanding a new target.
- * A report from any later step must still address the active task.
+ * current. A report from any later step must still address the active task.
  */
 function finishedInCurrentStep(state, task) {
   if (task.status !== 'completed') return false;
   if (!Number.isInteger(task.finishTurn) || !Number.isInteger(task.finishStep)) return false;
+  // Tool calls in one model step execute in model order, so a report listed
+  // after its finish runs only once the task is already completed. The report
+  // still describes that task's final work. Call-list order is not
+  // protocol-meaningful, so the late report is accepted instead of demanding a
+  // new target.
   return task.finishTurn === state.lastToolCallTurn && task.finishStep === state.lastToolCallStep;
 }
 
@@ -373,8 +374,8 @@ export function reportLedger(state, index, inIssue, rawIssue) {
       ? ledgerError('reportInactiveTask', { index, status: task.status, active: taskReference(active) })
       : ledgerError('reportNoActiveTask', { index, status: task.status });
   }
-  // A late report closes out the task that finish just completed; it is not a
-  // target switch, so the active task's continuation target must not block it.
+  // A late report closes out the task that finish just completed, so the active
+  // task's continuation target must allow it.
   if (!lateFinish && state.lastReportTaskId !== null && state.lastReportTaskId !== id) {
     const previous = state.nodes.find((node) => node.id === state.lastReportTaskId);
     if (previous && previous.status !== 'completed') {
@@ -462,7 +463,7 @@ export function foldLedgerEvent(state, event) {
     return {
       ...state,
       lastToolCallId: event.data.callId,
-      // Clear a previous step when this call cannot identify one; inheriting it
+      // Clear a previous step when this call cannot identify one. Inheriting it
       // would let a finish look like it belongs to an older model step.
       lastToolCallTurn: Number.isInteger(event.data.turn) ? event.data.turn : undefined,
       lastToolCallStep: Number.isInteger(event.data.step) ? event.data.step : undefined,
@@ -585,8 +586,8 @@ function turnIssues(state, task, turn) {
 
 function navigationFields(task, beforeSeq) {
   if (typeof task.startCallId !== 'string' || typeof task.startSeq !== 'number') return {};
-  // Archived turns only expose starts that happened before the turn closed;
-  // the task node itself keeps the latest start for current-plan navigation.
+  // Archived turns only expose starts that happened before the turn closed.
+  // The task node itself keeps the latest start for current-plan navigation.
   if (typeof beforeSeq === 'number' && task.startSeq >= beforeSeq) return {};
   return { startCallId: task.startCallId, startSeq: task.startSeq };
 }
@@ -642,13 +643,16 @@ function computeLedgerView(state) {
   };
 }
 
-// View memo. The key is the `state.nodes` array reference: every semantic fold
-// (`todo/write`, `turn/start`, `turn/end`) deep-clones the state, so a new nodes
-// array always means new node/report/turn contents, and no published state is
-// mutated in place. Node contents are therefore a pure function of that array
-// identity. The view also reads currentIds/turns/currentTurn/lastReportTaskId,
-// so those are compared separately; it deliberately ignores lastToolCallId (a
-// shallow `tool/call` copy must hit) and version.
+// The view cache is keyed by the `state.nodes` array reference. Every semantic
+// fold (`todo/write`, `turn/start`, `turn/end`) deep-clones the state. A new
+// nodes array therefore always means new node, report, and turn contents. No
+// published state is mutated in place, so node contents are a pure function of
+// that array identity.
+//
+// The view also reads currentIds, turns, currentTurn, and lastReportTaskId, so
+// those are compared separately. It deliberately ignores lastToolCallId and
+// version. A shallow `tool/call` copy must hit the cache.
+//
 // A hit returns the exact same object so the projection registry can dedupe by
 // Object.is without re-running Zod parsing or JSON serialization.
 const ledgerViewCache = new WeakMap();

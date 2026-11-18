@@ -65,9 +65,7 @@ function harness({ signal, stateAvailable = true, step, now, intervalMs } = {}) 
   };
 }
 
-// Minimal replica of the pre-refactor updateLedger + appendOperation path.
-// The public entry points keep their clone-per-call semantics, so this yields
-// the exact event payloads HEAD emitted for the same argument sequence.
+// Minimal replica of the combined updateLedger and appendOperation path.
 function legacyCompositeEvents(state, args, callId) {
   let next = state;
   const events = [];
@@ -142,7 +140,7 @@ test('todo_read full exports a complete private history file', async () => {
     assert.deepEqual(document.state.currentIds, env.state().currentIds);
     assert.equal(result.eventCount, env.appended.length);
     assert.ok(env.appended.every((event) => event.type === 'todo/write'));
-    // The export keeps the semantic operations only; the repeated `todos`
+    // The export keeps the semantic operations only. The repeated `todos`
     // snapshot stays in the session log for the official todo projection.
     assert.deepEqual(
       document.events,
@@ -269,7 +267,7 @@ test('the periodic reminder also names the active issue', async () => {
   );
 });
 
-test('no reminder is attached when no task is active', async () => {
+test('the reminder requires an active task', async () => {
   const clock = { now: 0 };
   const env = harness({ now: () => clock.now });
   await env.tools.todo_write.execute({ todos: ['Only'] }, env.exec);
@@ -376,7 +374,7 @@ test('a deferred report waits for a later write to activate the task', async () 
   const env = harness({ step });
   await env.tools.todo_write.execute({ todos: ['Active'] }, env.exec);
 
-  // The target is still pending after the append; the finish in the same step
+  // The target is still pending after the append. The finish in the same step
   // makes it active, so the report must wait for that second write.
   env.beginCall('report-call', 2, 1);
   const reported = await env.tools.todo_report.execute(
@@ -503,7 +501,7 @@ test('reorder returns the default read view instead of the full plan', async () 
   ]);
 });
 
-test('composite event payloads match the head sequence byte for byte', async () => {
+test('composite event payloads match the expected sequence byte for byte', async () => {
   const scenarios = [
     [{ todos: ['First', 'Second'] }],
     [{ todos: ['First', 'Second'] }, { finish: 1 }],
@@ -525,10 +523,12 @@ test('composite event payloads match the head sequence byte for byte', async () 
 
     const actualEvents = env.appended.map((event) => event.data);
     assert.deepEqual(actualEvents, expectedEvents);
+    // Public entry points clone per call, so this yields the event payloads for a
+    // given argument sequence.
     assert.equal(
       JSON.stringify(actualEvents),
       JSON.stringify(expectedEvents),
-      'todos and ledger payloads must be byte-identical to the head sequence',
+      'todos and ledger payloads must be byte-identical to the expected sequence',
     );
     assert.deepEqual(legacyTodos(env.state()), legacyTodos(expectedState));
     assert.deepEqual(env.state().currentIds, expectedState.currentIds);

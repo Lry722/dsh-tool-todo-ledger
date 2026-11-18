@@ -204,7 +204,7 @@ test('an unavailable session store reports failure without touching the chat vie
   assert.equal(await dock.openTodoStart('session-1', { startCallId: 'call-1' }), false);
 });
 
-test('the sidebar shows no empty state while the projection is still loading', () => {
+test('the sidebar renders no empty state while the projection is still loading', () => {
   const ctx = createContext('session-1');
   const sidebar = sidebarFor(ctx);
 

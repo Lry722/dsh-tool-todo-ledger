@@ -126,7 +126,7 @@ test('a report must accompany another tool but need not lead it', () => {
   }
 });
 
-test('work requires an in-progress main task', () => {
+test('work requires an in-progress task', () => {
   const step = message(call('todo_report'), call('bash'));
   assert.match(stepCoverage(emptyLedger(), step, execution('bash-call')).reason, /没有进行中的任务/);
   assert.equal(stepCoverage(reportedLedger(), step, execution('bash-call')).outcome, 'covered');
@@ -136,8 +136,8 @@ test('a first write later in the same step admits an action as bootstrap', () =>
   const step = message(call('bash', 'bash-call'), call('todo_write', 'write-call', { todos: ['Task'] }));
   assert.deepEqual(stepCoverage(emptyLedger(), step, execution('bash-call')), { outcome: 'bootstrap' });
 
-  // Without a write in the step the empty plan stays a hard violation, and a
-  // write that already ran earlier cannot admit a task-less action either.
+  // Without a write in the step, the empty plan stays a hard block. A write
+  // that already ran earlier cannot admit a task-less action either.
   assert.match(
     stepCoverage(emptyLedger(), message(call('bash', 'bash-call')), execution('bash-call')).reason,
     /没有进行中的任务/,
@@ -375,7 +375,7 @@ test('repeatedIssue only matches an explicit continuation of the active issue', 
     undefined,
   );
 
-  // Reorder keeps t1 in progress but clears the continuation target; the next
+  // Reorder keeps t1 in progress but clears the continuation target. The next
   // issue must be named even when it matches the old name.
   let reordered = startLedger(writeLedger(emptyLedger(), ['Task', 'Next']).state, 1).state;
   reordered = reportIssue(reordered);
@@ -387,8 +387,8 @@ test('repeatedIssue only matches an explicit continuation of the active issue', 
     undefined,
   );
 
-  // The report's own index decides which task is judged: t2 is pending while t1
-  // still owns the issue, so naming it for t2 must not look like a repeat.
+  // The report's own index decides which task is judged. t2 is pending while t1
+  // still owns the issue, so naming it for t2 must count as a new issue.
   const twoTasks = writeLedger(issueReportedLedger('同名 issue'), ['Two']).state;
   assert.deepEqual(
     repeatedIssue(twoTasks, { arguments: { index: 1, inIssue: true, issue: '同名 issue' } }),
@@ -400,7 +400,7 @@ test('repeatedIssue only matches an explicit continuation of the active issue', 
   );
 });
 
-test('unreportedFinish only matches an active task without reports', () => {
+test('unreportedFinish only matches an in-progress task without reports', () => {
   const state = inProgressLedger();
   assert.deepEqual(unreportedFinish(state, { arguments: { finish: 1 } }), {
     index: 1,
@@ -449,7 +449,7 @@ test('a report that already ran does not satisfy the finish confirmation', () =>
     call('todo_report', 'report-call', { index: 1, inIssue: false }),
     call('todo_write', 'write-call', { finish: 1 }),
   ));
-  // The earlier report has no effect on the state, so it must have failed; only
+  // The earlier report left the state unchanged, so it must have failed. Only
   // a report that is still ahead of the finish can be looked up.
   assert.match(
     h.run('write-call', 'todo_write', 'write-call', { finish: 1 }),
@@ -501,8 +501,8 @@ test('a retired finish confirmation does not authorize a later finish', () => {
   h.setStep(message(call('todo_write')));
   assert.match(h.run('todo_write-call', 'todo_write', 'todo_write-call', finish), /reorderFrom/);
 
-  // Reordering the task away retires the confirmation: it belonged to a plan
-  // that no longer exists and must not leak into a replacement task.
+  // Reordering the task away retires the confirmation. It belonged to the old
+  // plan and expires with it, so a replacement task starts fresh.
   h.setState(writeLedger(inProgressLedger(), ['Replacement'], 1).state);
   h.setStep(message(call('todo_write')));
   assert.equal(h.run('todo_write-call', 'todo_write', 'todo_write-call', { todos: ['Next'] }), undefined);
@@ -523,7 +523,7 @@ test('a repeated active issue gets one steer that asks to omit the name', () => 
   assert.match(h.warnings[0].content[0].text, /查询 DSH API/);
   assert.match(h.warnings[0].content[0].text, /省略 issue/);
 
-  // The report still runs; only one steer per issue streak is sent.
+  // The report still runs. Only one steer per issue streak is sent.
   assert.equal(h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated), undefined);
   assert.equal(h.warnings.length, 1);
 });
@@ -536,7 +536,7 @@ test('omitting the continued issue clears the steer for a later relapse', () => 
   h.run('todo_report-call', 'todo_report', 'todo_report-call', repeated);
   assert.equal(h.warnings.length, 1);
 
-  // Compliance: continue the same issue without restating its name.
+  // When compliant, continue the same issue and omit its name.
   assert.equal(
     h.run('todo_report-call', 'todo_report', 'todo_report-call', { index: 1, inIssue: true }),
     undefined,
@@ -632,7 +632,7 @@ test('failed reports consume the budget silently and eventually block', () => {
   assert.match(h.run(), /所有工具调用将被拦截/);
 });
 
-test('a recorded report restores the full exemption grant', () => {
+test('a recorded report resets the full exemption budget', () => {
   const h = guardHarness();
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
@@ -651,7 +651,7 @@ test('a recorded report restores the full exemption grant', () => {
   assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
 });
 
-test('a report recorded outside an action step still restores the grant', () => {
+test('a report recorded outside an action step still resets the exemption budget', () => {
   const h = guardHarness();
   h.setStep(message(call('bash')));
   assert.equal(h.run(), undefined);
@@ -686,7 +686,7 @@ test('a report on a finished task still resets the budget after a task switch', 
   assert.match(h.warnings[1].content[0].text, /你忘了调用 todo_report/);
 });
 
-test('a mid-message finish hard-blocks later actions instead of reusing the cached pass', () => {
+test('a mid-message finish hard-blocks later actions', () => {
   const initial = reportedLedger();
   const h = guardHarness(initial);
   const step = message(
@@ -803,7 +803,7 @@ test('uncovered PTC programs escalate to a pending report requirement', () => {
   const h = guardHarness(reportedLedger(), createCoverageBudget(1));
   h.setStep(message(call('run_code', 'run_code-call')));
 
-  // First uncovered program: admitted with a warning.
+  // The first uncovered program is admitted with a warning.
   assert.equal(h.run('run_code-call', 'run_code'), undefined);
   assert.equal(h.run('run_code-call', 'bash', 'run_code-call:ptc:1'), undefined);
   h.fire('session/event', ptcDispatch('run_code-call', 'bash'));
@@ -875,8 +875,9 @@ test('recorded late reports never consume the exemption budget', () => {
 
 test('a late report that never records stops granting provisional passage', () => {
   const h = guardHarness(reportedLedger('earlier-report'));
-  // The first late report is admitted before it can be verified; every following
-  // step admits only the hope of a new report, so it must spend the budget.
+  // The first late report is admitted before it can be verified. Every following
+  // step is admitted only in the hope that a new report will appear. Such an
+  // admission must spend the budget.
   for (let step = 0; step < 7; step += 1) {
     h.setStep(message(call('bash'), call('todo_report', `late-${step}`)));
     assert.equal(h.run(), undefined);
@@ -886,12 +887,12 @@ test('a late report that never records stops granting provisional passage', () =
   h.setStep(message(call('bash'), call('todo_report', 'late-final')));
   const denial = h.run();
   assert.match(denial, /所有工具调用将被拦截/);
-  // The block names the active task so a wrong-index report can be corrected.
+  // The block names the in-progress task so a wrong-index report can be corrected.
   assert.match(denial, /当前进行中的任务是 1「Task」/);
   assert.equal(h.warnings.length, 0);
 });
 
-test('a recorded report restores the late-report grant', () => {
+test('a recorded report resets the late-report budget', () => {
   const h = guardHarness(reportedLedger('earlier-report'));
   for (let step = 0; step < 5; step += 1) {
     h.setStep(message(call('bash'), call('todo_report', `late-${step}`)));
@@ -899,12 +900,13 @@ test('a recorded report restores the late-report grant', () => {
   }
   assert.equal(h.warnings.length, 0);
 
-  // A report that lands between steps resets the budget and re-arms the grant.
+  // A report that lands between steps resets the budget, so a fresh exemption
+  // round can begin.
   h.setState(reportedLedger('recovered-report'));
   h.setStep(message(call('bash'), call('todo_report', 'recovered-late')));
   assert.equal(h.run(), undefined);
 
-  // A fresh broken streak may again spend the full grant before blocking.
+  // A broken streak may again spend the full budget before blocking.
   for (let step = 0; step < 6; step += 1) {
     h.setStep(message(call('bash'), call('todo_report', `late-again-${step}`)));
     assert.equal(h.run(), undefined);
@@ -956,7 +958,7 @@ test('a projection failure notifies the user and lets the call continue', () => 
   assert.equal(errors.length, 1);
 });
 
-test('inProgressTask finds the active node and ignores malformed state', () => {
+test('inProgressTask finds the in-progress task and ignores malformed state', () => {
   assert.equal(inProgressTask(inProgressLedger()).content, 'Task');
   assert.equal(inProgressTask(emptyLedger()), undefined);
   assert.equal(inProgressTask(undefined), undefined);

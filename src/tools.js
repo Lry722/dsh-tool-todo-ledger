@@ -16,22 +16,22 @@ import { callArguments, callPosition, stepToolCalls } from './step.js';
 
 const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true };
 export const ACTIVE_TASK_REMINDER_MS = 60 * 1000;
-// Exports are private temporary files; remove them even when the caller never
-// deletes the returned path. The timer is unref'd so it cannot hold the host open.
+// Exports are private temporary files. Remove them even when the caller never
+// deletes the returned path.
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * `todo_report` normally returns nothing. Once per configured interval it also
- * names the active task and, when one is open there, its active issue. A long
- * stretch of work therefore cannot keep reporting a target that was already
- * finished without the model being reminded to switch. The window starts when
- * the tool set is created and restarts whenever a reminder is emitted.
+ * names the active task and, when one is open there, its active issue. So the
+ * model cannot keep reporting a target that is already finished during a long
+ * stretch of work. The periodic reminder tells it to switch.
  * @param options - `intervalMs` may be a getter for a live setting and returns
- *   the window in milliseconds; a non-positive value disables reminders.
+ *   the window in milliseconds. A non-positive value disables reminders.
  *   `now` overrides the clock for tests.
  * @returns a function that returns `{ content, issue? }` when a reminder is due.
  */
 export function createActiveTaskReminder({ intervalMs = ACTIVE_TASK_REMINDER_MS, now = Date.now } = {}) {
+  // The window starts when the tool set is created.
   let remindedAt = now();
   return (state) => {
     const interval = typeof intervalMs === 'function' ? intervalMs() : intervalMs;
@@ -41,6 +41,7 @@ export function createActiveTaskReminder({ intervalMs = ACTIVE_TASK_REMINDER_MS,
     for (const id of state.currentIds) {
       const task = state.nodes.find((node) => node.id === id);
       if (task?.status !== 'in_progress') continue;
+      // Emitting a reminder restarts the window.
       remindedAt = at;
       const issue = activeIssue(state, task.id)?.name;
       return { content: task.content, ...(issue === undefined ? {} : { issue }) };
@@ -50,6 +51,7 @@ export function createActiveTaskReminder({ intervalMs = ACTIVE_TASK_REMINDER_MS,
 }
 
 export function scheduleExportCleanup(directory, ttlMs = EXPORT_TTL_MS) {
+  // The timer is unref'd so it cannot hold the host open.
   setTimeout(() => {
     void rm(directory, { recursive: true, force: true }).catch(() => {});
   }, ttlMs).unref?.();
@@ -99,9 +101,9 @@ function recordReport(exec, state, index, inIssue, issue, callId) {
 }
 
 /**
- * The plan produced by every `todo_write` still listed after `callId` in this
- * assistant step. A report may name a task the later write has not created yet;
- * validating against this projection keeps the call order from mattering.
+ * The plan produced by every `todo_write` call that appears after `callId` in
+ * this assistant step. A report may name a task the later write has not created
+ * yet. Validating against this projected plan keeps the call order from mattering.
  * @param state - the current `todoLedger` projection.
  * @param message - the assistant message that requested this step's calls.
  * @param callId - the reporting call, which bounds the projection.
@@ -153,10 +155,11 @@ async function exportHistory(ctx, agent) {
 
 export function createLedgerTools(ctx, stepOf, options) {
   const remindActiveTask = createActiveTaskReminder(options);
-  // Reports that name a task a later write in the same step has not created yet.
-  // Each intent is already validated against the projected plan; it is appended
-  // only after that write lands. A tool set belongs to one agent and an agent
-  // keeps one session, so the queue needs neither a session key nor a map.
+  // Queue reports that name a task a later write in the same step has not
+  // created yet. Each intent is already validated against the projected plan.
+  //
+  // A tool set belongs to one agent and an agent keeps one session, so one
+  // queue in memory is enough.
   let deferred = { message: undefined, intents: [] };
 
   function queueDeferredReport(message, intent) {
@@ -173,8 +176,8 @@ export function createLedgerTools(ctx, stepOf, options) {
       dropDeferred();
       return;
     }
-    // A later write in the same step may still activate the target, so an
-    // intent that cannot be recorded yet stays queued; the next step's first
+    // A later write in the same step may still activate that task, so an
+    // intent that cannot be recorded yet stays queued. The next step's first
     // write drops the whole queue, so nothing leaks past its step.
     const unresolved = [];
     for (const intent of deferred.intents) {
@@ -185,6 +188,8 @@ export function createLedgerTools(ctx, stepOf, options) {
         continue;
       }
       try {
+        // The intent is recorded only now, after the write that creates its task
+        // has landed.
         recordReport(exec, state, index, intent.inIssue, intent.issue, intent.callId);
       } catch (_error) {
         unresolved.push(intent);

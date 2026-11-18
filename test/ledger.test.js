@@ -201,7 +201,7 @@ test('a late report can continue the issue recorded before the finish', () => {
   state = finishEvent(state, 4, 1);
   state = startEvent(state, 5, 2, 'finish-call');
   // A report for the new active task moves the latest-report target away from
-  // the finished task; continuation still resolves from that task's own report.
+  // the finished task. Continuation still resolves from that task's own report.
   state = reportEvent(state, 6, 2, false, undefined, 'next-report');
 
   const late = reportLedger(toolCallEvent(state, 7, 'report-call', 4, 2), 1, true);
@@ -243,7 +243,7 @@ test('composite updates finish and reorder in a fixed order', () => {
   assert.deepEqual(result.state.nodes.slice(2, 4).map((node) => node.status), ['void', 'void']);
 });
 
-test('composite updates validate fully without mutating the input state', () => {
+test('composite updates validate fully and leave the input state untouched', () => {
   const state = startLedger(planned(), 1).state;
   const before = structuredClone(state);
   assert.throws(
@@ -259,7 +259,7 @@ test('composite updates validate fully without mutating the input state', () => 
   ]);
 });
 
-test('composite operations publish intermediate legacy snapshots instead of full states', () => {
+test('composite operations publish only intermediate legacy snapshots', () => {
   let state = writeLedger(emptyLedger(), ['Confirm', 'Implement', 'Test', 'Document']).state;
   state = startLedger(state, 1).state;
   state = finishLedger(state, 1).state;
@@ -290,22 +290,22 @@ test('composite operations publish intermediate legacy snapshots instead of full
     { todos: legacyTodos(startedStep.state), ledger: { operation: 'start', taskId: startedStep.taskId } },
   ]);
   for (const operation of result.operations) {
-    assert.equal(Object.hasOwn(operation, 'state'), false, 'operations must not retain intermediate states');
+    assert.equal(Object.hasOwn(operation, 'state'), false, 'operations must drop intermediate states');
   }
-  assert.equal(Object.hasOwn(result.write, 'state'), false, 'the write result must not retain an intermediate state');
+  assert.equal(Object.hasOwn(result.write, 'state'), false, 'the write result must drop its intermediate state');
   assert.deepEqual(legacyTodos(result.state), legacyTodos(startedStep.state));
   assert.deepEqual(numberedPlan(result.state), numberedPlan(startedStep.state));
-  assert.deepEqual(state, before, 'a successful composite must not mutate its input');
+  assert.deepEqual(state, before, 'a successful composite update must leave its input untouched');
 });
 
-test('a failed composite with a valid finish leaves the input state untouched', () => {
+test('a failed composite update with a valid finish leaves the input state untouched', () => {
   const state = startLedger(planned(), 1).state;
   const before = structuredClone(state);
   assert.throws(
     () => updateLedger(state, { finish: 1, reorderFrom: 4 }),
     ledgerMessage('reorderRange', { count: 3 }),
   );
-  assert.deepEqual(state, before, 'the working copy must not leak a successful finish into the input');
+  assert.deepEqual(state, before, 'a failed composite must confine its successful finish to the working copy');
   assert.equal(state.nodes[0].status, 'in_progress');
   // Task numbers derive from the nodes, so a discarded write cannot shift them.
   assert.deepEqual(writeLedger(state, ['Next']).added, [{ index: 4, id: 't4', content: 'Next' }]);
@@ -345,8 +345,8 @@ test('a blocked report names the in-progress task', () => {
     ledgerMessage('reportNoActiveTask', { index: 1, status: 'pending' }),
   );
 
-  // A legacy snapshot can hold two in-progress tasks; switching the report
-  // target names the one left unfinished instead of a generic phrase.
+  // A legacy snapshot can hold two in-progress tasks. Switching the report
+  // target names the one left unfinished.
   const conflicting = reportLedger(started, 1, false).state;
   conflicting.nodes[1].status = 'in_progress';
   assert.throws(
@@ -556,7 +556,7 @@ test('legacy whole-list events remain replayable', () => {
   assert.deepEqual(numberedPlan(state), [{ index: 1, content: 'Legacy', status: 'completed' }]);
 });
 
-test('a new turn hides completed Dock items without changing the compatibility snapshot', () => {
+test('a new turn hides completed Dock items and keeps the legacy snapshot unchanged', () => {
   let state = writeLedger(emptyLedger(), ['One']).state;
   state = startLedger(state, 1).state;
   state = finishLedger(state, 1).state;
@@ -601,7 +601,7 @@ test('repeating the same tool call id leaves the state untouched', () => {
   assert.strictEqual(second, first);
 });
 
-test('semantic folds invalidate the memoized view without stale output', () => {
+test('semantic folds invalidate the memoized view and produce fresh output', () => {
   const plannedState = planned();
   const startedState = startLedger(plannedState, 1).state;
   const turnOpen = turnEvent(startedState, 25, 'turn/start', 1);
@@ -635,12 +635,12 @@ test('the view memo key compares plan and turn inputs independently of nodes', (
     const baseView = ledgerView(state);
     const variantView = ledgerView(variant);
     assert.notStrictEqual(variantView, baseView, `${field} must invalidate the memo`);
-    assert.deepEqual(variantView, ledgerView(structuredClone(variant)), `${field} must not produce stale output`);
+    assert.deepEqual(variantView, ledgerView(structuredClone(variant)), `${field} must produce fresh output`);
   }
 
   const baseView = ledgerView(state);
   const ignored = { ...state, lastToolCallId: 'other-call' };
-  assert.strictEqual(ledgerView(ignored), baseView, 'fields outside the view must not invalidate the memo');
+  assert.strictEqual(ledgerView(ignored), baseView, 'fields outside the view must keep the memo valid');
 });
 
 test('older start and report replay recover the latest tool call after a shallow copy', () => {
